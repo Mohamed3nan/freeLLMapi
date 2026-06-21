@@ -52,6 +52,13 @@ export interface CompletionOptions {
   timeoutMs?: number;
 }
 
+/** A model discovered from a provider's upstream model list endpoint. */
+export interface DiscoveredModel {
+  id: string;
+  name?: string;
+  context_window?: number;
+}
+
 export abstract class BaseProvider {
   abstract readonly platform: Platform;
   abstract readonly name: string;
@@ -60,6 +67,15 @@ export abstract class BaseProvider {
    * the platform "configured", and the provider omits the Authorization header
    * on outgoing requests. Defaults to false; set by subclasses. */
   keyless = false;
+
+  /**
+   * Fetch the list of models available from the provider's upstream API.
+   * Override in subclasses that support model listing. Returns an empty array
+   * by default (opt-in). Used by the model auto-discovery service.
+   */
+  async listModels(_apiKey: string): Promise<DiscoveredModel[]> {
+    return [];
+  }
 
   abstract chatCompletion(
     apiKey: string,

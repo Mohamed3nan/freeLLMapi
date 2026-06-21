@@ -5,7 +5,7 @@ import type {
   ChatToolCall,
   Platform,
 } from '@freellmapi/shared/types.js';
-import { BaseProvider, providerHttpError, type CompletionOptions } from './base.js';
+import { BaseProvider, providerHttpError, type CompletionOptions, type DiscoveredModel } from './base.js';
 import { rescueInlineToolCalls } from '../lib/tool-call-rescue.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 
@@ -213,6 +213,59 @@ export class OpenAICompatProvider extends BaseProvider {
       },
     }, 30000);
     return res.status !== 401 && res.status !== 403;
+  }
+
+  /** Fetch the list of available models from the provider's /v1/models endpoint.
+   * Returns an array of discovered models (id + optional name/context). Handles
+   * the standard OpenAI `{ data: [{ id, ... }] }` envelope that all OpenAI-
+   * compatible providers use. Filters out known non-chat model types. */
+  override async listModels(apiKey: string): Promise<DiscoveredModel[]> {
+    try {
+      const url = this.validateUrl ?? `${this.baseUrl}/models`;
+      const res = await this.fetchWithTimeout(url, {
+        method: 'GET',
+        headers: {
+          ...this.authHeader(apiKey),
+          ...this.extraHeaders,
+        },
+      }, 30000);
+      if (!res.ok) return [];
+      const body = await res.json().catch(() => null);
+      if (!body || typeof body !== 'object') return [];
+
+      // Standard OpenAI format: { data: [...] }. Some providers (Kilo) return
+      // a plain array at the top level.
+      const list: unknown[] = Array.isArray((body as any).data)
+        ? (body as any).data
+        : Array.isArray(body) ? body as unknown[] : [];
+
+      return list
+        .filter((m): m is { id: string } => {
+          if (!m || typeof m !== 'object') return false;
+          const entry = m as Record<string, unknown>;
+          if (typeof entry.id !== 'string' || !entry.id) return false;
+          const id = entry.id.toLowerCase();
+          // Skip known non-chat model types
+          if (id.includes('embed') || id.includes('tts') || id.includes('whisper') ||
+              id.includes('dall-e') || id.includes('moderation') ||
+              id.includes('text-to-') || id.includes('speech') ||
+              id.includes('flux') || id.includes('stable-diffusion') ||
+              id.includes('cosyvoice')) return false;
+          return true;
+        })
+        .map(m => {
+          const entry = m as Record<string, unknown>;
+          return {
+            id: entry.id as string,
+            name: typeof entry.name === 'string' ? entry.name : undefined,
+            context_window: typeof entry.context_window === 'number' ? entry.context_window
+              : typeof entry.context_length === 'number' ? (entry.context_length as number)
+              : undefined,
+          };
+        });
+    } catch {
+      return [];
+    }
   }
 }
 

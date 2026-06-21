@@ -5,6 +5,7 @@ import { startHealthChecker } from './services/health.js';
 import { applyProxyUrl, applyProxyEnabled, applyProxyBypass } from './lib/proxy.js';
 import { startCatalogSync } from './services/catalog-sync.js';
 import { installProcessSafetyNet } from './lib/process-safety-net.js';
+import { startModelDiscovery } from './services/model-discovery.js';
 
 const PORT = process.env.PORT ?? 3001;
 // Dual-stack ('::') by default so the dashboard is reachable over both IPv4
@@ -33,6 +34,7 @@ async function main() {
     console.log(`Proxy endpoint: http://${display}:${PORT}/v1/chat/completions`);
     startHealthChecker();
     startCatalogSync();
+    startModelDiscovery();
   };
 
   const server = app.listen(Number(PORT), HOST, onReady(HOST));

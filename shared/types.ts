@@ -312,3 +312,14 @@ export interface RateLimitStatus {
   available: boolean;
   nextResetAt: string | null;
 }
+
+// ---- Model Auto-Discovery Types ----
+
+export interface DiscoveryResult {
+  platform: Platform;
+  discovered: number;
+  inserted: number;
+  skipped: number;
+  errors?: string;
+}
+

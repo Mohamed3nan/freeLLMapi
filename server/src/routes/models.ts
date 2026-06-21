@@ -2,6 +2,8 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getDb } from '../db/index.js';
 import { hasProvider } from '../providers/index.js';
+import { discoverAllModels, discoverModelsForPlatform, getDiscoveryStatus } from '../services/model-discovery.js';
+import type { Platform } from '@freellmapi/shared/types.js';
 
 export const modelsRouter = Router();
 
@@ -50,3 +52,31 @@ modelsRouter.get('/', (_req: Request, res: Response) => {
 
   res.json(result);
 });
+
+// ── Model Auto-Discovery ────────────────────────────────────────────────────
+// Discover models from all configured providers' upstream /v1/models endpoints.
+modelsRouter.post('/discover', async (_req: Request, res: Response) => {
+  try {
+    const results = await discoverAllModels();
+    res.json({ success: true, results });
+  } catch (err) {
+    res.status(500).json({ error: { message: err instanceof Error ? err.message : 'Discovery failed' } });
+  }
+});
+
+// Discover models for a specific platform.
+modelsRouter.post('/discover/:platform', async (req: Request, res: Response) => {
+  const platform = req.params.platform as Platform;
+  try {
+    const result = await discoverModelsForPlatform(platform);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: { message: err instanceof Error ? err.message : 'Discovery failed' } });
+  }
+});
+
+// Get last discovery run status.
+modelsRouter.get('/discovery-status', (_req: Request, res: Response) => {
+  res.json(getDiscoveryStatus());
+});
+

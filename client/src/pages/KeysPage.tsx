@@ -535,6 +535,61 @@ export default function KeysPage() {
     },
   })
 
+  const [discoveryStatus, setDiscoveryStatus] = useState<{
+    show: boolean
+    message: string
+    type: 'success' | 'error'
+  }>({ show: false, message: '', type: 'success' })
+
+  function showDiscoveryFeedback(message: string, type: 'success' | 'error' = 'success') {
+    setDiscoveryStatus({ show: true, message, type })
+    setTimeout(() => {
+      setDiscoveryStatus(prev => prev.message === message ? { ...prev, show: false } : prev)
+    }, 5000)
+  }
+
+  const discoverAll = useMutation({
+    mutationFn: () => apiFetch<{ success: boolean; results: any[] }>('/api/models/discover', { method: 'POST' }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['keys'] })
+      queryClient.invalidateQueries({ queryKey: ['health'] })
+      queryClient.invalidateQueries({ queryKey: ['fallback'] })
+      queryClient.invalidateQueries({ queryKey: ['models'] })
+      const totalNew = (data.results ?? []).reduce((s, r) => s + (r.inserted ?? 0), 0)
+      if (totalNew > 0) {
+        showDiscoveryFeedback(t('keys.discoveredCount', { count: totalNew }), 'success')
+      } else {
+        showDiscoveryFeedback(t('keys.discoveredNone'), 'success')
+      }
+    },
+    onError: (err: any) => {
+      showDiscoveryFeedback(err.message || t('common.unknownError'), 'error')
+    },
+  })
+
+  const discoverPlatform = useMutation({
+    mutationFn: (platform: string) =>
+      apiFetch<{ success: boolean; platform: string; discovered: number; inserted: number; skipped: number; errors?: string }>(
+        `/api/models/discover/${platform}`,
+        { method: 'POST' }
+      ),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['keys'] })
+      queryClient.invalidateQueries({ queryKey: ['health'] })
+      queryClient.invalidateQueries({ queryKey: ['fallback'] })
+      queryClient.invalidateQueries({ queryKey: ['models'] })
+      const platformLabel = [...PLATFORMS, CUSTOM_GROUP].find(p => p.value === data.platform)?.label || data.platform
+      if (data.inserted > 0) {
+        showDiscoveryFeedback(t('keys.discoveredCountPlatform', { count: data.inserted, platform: platformLabel }), 'success')
+      } else {
+        showDiscoveryFeedback(t('keys.discoveredNone'), 'success')
+      }
+    },
+    onError: (err: any) => {
+      showDiscoveryFeedback(err.message || t('common.unknownError'), 'error')
+    },
+  })
+
   const checkKey = useMutation({
     mutationFn: (keyId: number) => apiFetch(`/api/health/check/${keyId}`, { method: 'POST' }),
     onSuccess: () => {
@@ -638,9 +693,14 @@ export default function KeysPage() {
         actions={
           <>
             {tab === 'providers' && keys.length > 0 && (
-              <Button variant="outline" size="sm" onClick={() => checkAll.mutate()} disabled={checkAll.isPending}>
-                {checkAll.isPending ? t('keys.checking') : t('keys.checkAll')}
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => checkAll.mutate()} disabled={checkAll.isPending}>
+                  {checkAll.isPending ? t('keys.checking') : t('keys.checkAll')}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => discoverAll.mutate()} disabled={discoverAll.isPending}>
+                  {discoverAll.isPending ? t('keys.discoveringAll') : t('keys.discoverAll')}
+                </Button>
+              </div>
             )}
             <div className="inline-flex gap-1 rounded-xl border p-1">
               {KEYS_TABS.map(tb => (
@@ -777,9 +837,22 @@ export default function KeysPage() {
                       )}
                       <GetKeyLink url={group.url} />
                     </div>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {t(group.keys.length === 1 ? 'keys.keyCountOne' : 'keys.keyCountOther', { count: group.keys.length })}
-                    </span>
+                    <div className="flex items-center gap-2.5">
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="h-7 text-xs font-normal px-2 text-muted-foreground hover:text-foreground hover:bg-muted"
+                        onClick={() => discoverPlatform.mutate(group.value)}
+                        disabled={discoverPlatform.isPending && discoverPlatform.variables === group.value}
+                      >
+                        {discoverPlatform.isPending && discoverPlatform.variables === group.value
+                          ? t('keys.discovering')
+                          : t('keys.discover')}
+                      </Button>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {t(group.keys.length === 1 ? 'keys.keyCountOne' : 'keys.keyCountOther', { count: group.keys.length })}
+                      </span>
+                    </div>
                   </div>
                   <div className="rounded-2xl border divide-y bg-card overflow-hidden">
                     {group.keys.map(k => {
@@ -853,6 +926,16 @@ export default function KeysPage() {
         </>
         )}
       </div>
+
+      {discoveryStatus.show && (
+        <div className={`fixed bottom-6 right-6 z-50 rounded-2xl border px-4 py-3 shadow-lg flex items-center gap-2 max-w-sm animate-in fade-in slide-in-from-bottom-5 duration-300 ${
+          discoveryStatus.type === 'success'
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+            : 'bg-destructive/10 border-destructive/30 text-destructive'
+        }`}>
+          <span className="text-xs font-medium">{discoveryStatus.message}</span>
+        </div>
+      )}
     </div>
   )
 }

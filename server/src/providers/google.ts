@@ -7,7 +7,7 @@ import type {
   ChatToolDefinition,
   TokenUsage,
 } from '@freellmapi/shared/types.js';
-import { BaseProvider, providerHttpError, type CompletionOptions } from './base.js';
+import { BaseProvider, providerHttpError, type CompletionOptions, type DiscoveredModel } from './base.js';
 import { contentToString } from '../lib/content.js';
 import { proxyFetch } from '../lib/proxy.js';
 
@@ -642,5 +642,49 @@ export class GoogleProvider extends BaseProvider {
       `— treating as 'error', not auto-disabling (the key may be valid but blocked by region/permission/restriction on this host).`,
     );
     throw new Error(`Google key validation inconclusive (HTTP ${res.status}${gStatus ? ` ${gStatus}` : ''})`);
+  }
+
+  /** Fetch the list of models from Google's Gemini API. The response format is
+   * `{ models: [{ name: "models/gemini-...", displayName, ... }] }`. We strip
+   * the `models/` prefix so model IDs match what chatCompletion expects. */
+  override async listModels(apiKey: string): Promise<DiscoveredModel[]> {
+    try {
+      const res = await this.fetchWithTimeout(
+        `${API_BASE}/models?key=${apiKey}`,
+        { method: 'GET' },
+        15000,
+      );
+      if (!res.ok) return [];
+      const body = await res.json().catch(() => null) as { models?: unknown[] } | null;
+      if (!body?.models || !Array.isArray(body.models)) return [];
+
+      return body.models
+        .filter((m): m is Record<string, unknown> => {
+          if (!m || typeof m !== 'object') return false;
+          const entry = m as Record<string, unknown>;
+          const name = String(entry.name ?? '');
+          // Only include generateContent-capable models
+          const methods = Array.isArray(entry.supportedGenerationMethods)
+            ? entry.supportedGenerationMethods as string[]
+            : [];
+          if (!methods.includes('generateContent') && !methods.includes('streamGenerateContent')) return false;
+          // Skip embedding/AQA-only models
+          if (name.includes('embedding') || name.includes('aqa')) return false;
+          return true;
+        })
+        .map(entry => {
+          // Strip "models/" prefix: "models/gemini-2.5-flash" → "gemini-2.5-flash"
+          const rawName = String(entry.name ?? '');
+          const id = rawName.startsWith('models/') ? rawName.slice(7) : rawName;
+          const inputLimit = typeof entry.inputTokenLimit === 'number' ? entry.inputTokenLimit : undefined;
+          return {
+            id,
+            name: typeof entry.displayName === 'string' ? entry.displayName : undefined,
+            context_window: inputLimit,
+          };
+        });
+    } catch {
+      return [];
+    }
   }
 }
