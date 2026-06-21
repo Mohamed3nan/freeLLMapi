@@ -95,6 +95,9 @@ export function setUnifyOverrides(input: unknown): UnifyOverrides {
 // name that only merges into "Llama 3.3 70B" via an override (by design).
 export function stripProviderSuffix(displayName: string): string {
   let s = (displayName ?? '').trim();
+  // Strip leading publisher prefix (e.g. "Google: Gemini..." -> "Gemini...")
+  s = s.replace(/^[^:]+:\s*/, '').trim();
+
   // Iteratively drop trailing markers: a "(...)" provider/variant parenthetical,
   // or a standalone "free" word. "Free" is a pricing tier, not a different model
   // — "DeepSeek V4 Flash Free" is the same model as "DeepSeek V4 Flash" — so it's
@@ -114,7 +117,12 @@ export function stripProviderSuffix(displayName: string): string {
 // "Qwen3 Coder" vs "Qwen3-Coder" group together. Meaningful characters such as
 // '+' are kept, so "Command R" and "Command R+" stay distinct.
 export function normalizeGroupKey(displayName: string): string {
-  return stripProviderSuffix(displayName).toLowerCase().replace(/[\s\-_]+/g, ' ').trim();
+  let s = stripProviderSuffix(displayName).toLowerCase();
+  // Treat spaces, hyphens, underscores, slashes, and colons as separators
+  s = s.replace(/[\s\-_/:]+/g, ' ').trim();
+  // Strip publisher prefixes from the start of the normalized string
+  s = s.replace(/^(google|meta llama|z ai|zai org|openai|cohere|mistral|anthropic|nvidia|cerebras|cloudflare|huggingface|openrouter|mistralai)\s+/i, '').trim();
+  return s;
 }
 
 // A stable, human-friendly slug for the API. Keeps digits and dots ("3.3").

@@ -302,12 +302,8 @@ function CustomProviderSection() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
   const [baseUrl, setBaseUrl] = useState('')
-  const [model, setModel] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [apiKey, setApiKey] = useState('')
-
-  const models = parseModelList(model)
-  const multiple = models.length > 1
 
   const addCustom = useMutation({
     mutationFn: (body: { baseUrl: string; models: string[]; displayName?: string; apiKey?: string }) =>
@@ -317,20 +313,17 @@ function CustomProviderSection() {
       queryClient.invalidateQueries({ queryKey: ['health'] })
       queryClient.invalidateQueries({ queryKey: ['fallback'] })
       queryClient.invalidateQueries({ queryKey: ['models'] })
-      setModel('')
       setDisplayName('')
     },
   })
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!baseUrl || models.length === 0) return
-    // A single display name only makes sense for a lone model; with several
-    // ids the server names each model after its own id.
+    if (!baseUrl) return
     addCustom.mutate({
       baseUrl,
-      models,
-      displayName: !multiple ? (displayName || undefined) : undefined,
+      models: [],
+      displayName: displayName || undefined,
       apiKey: apiKey || undefined,
     })
   }
@@ -352,22 +345,11 @@ function CustomProviderSection() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">{t('keys.customModels')}</Label>
-          <Textarea
-            value={model}
-            onChange={e => setModel(e.target.value)}
-            placeholder={'qwen3:4b\nllama3:8b'}
-            rows={2}
-            className="w-[200px] font-mono text-xs"
-          />
-        </div>
-        <div className="space-y-1.5">
           <Label className="text-xs">{t('keys.customDisplayName')}</Label>
           <Input
             value={displayName}
             onChange={e => setDisplayName(e.target.value)}
-            placeholder={multiple ? t('keys.customDisplayNamePerModel') : t('keys.customDisplayNameOptional')}
-            disabled={multiple}
+            placeholder={t('keys.customDisplayNameOptional')}
             className="w-[150px]"
           />
         </div>
@@ -381,8 +363,8 @@ function CustomProviderSection() {
             className="w-[150px] font-mono text-xs"
           />
         </div>
-        <Button type="submit" size="sm" disabled={!baseUrl || models.length === 0 || addCustom.isPending}>
-          {addCustom.isPending ? t('keys.addingCustom') : multiple ? t('keys.addModels', { count: models.length }) : t('keys.addModel')}
+        <Button type="submit" size="sm" disabled={!baseUrl || addCustom.isPending}>
+          {addCustom.isPending ? t('keys.addingCustom') : t('keys.addModel')}
         </Button>
       </form>
       {addCustom.isError && (

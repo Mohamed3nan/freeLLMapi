@@ -30,6 +30,7 @@ export interface ModelOption {
   // preset. For a group these hold the BEST (most capable) member's values.
   sizeTier: number     // Frontier=1, Large=2, Medium=3, Small=4, unknown=5
   intelligenceRank: number
+  modelIds: string[]   // every modelId in this group (for playground search)
 }
 
 const SIZE_TIER: Record<string, number> = { Frontier: 1, Large: 2, Medium: 3, Small: 4 }
@@ -43,6 +44,7 @@ export function buildModelOptions(entries: PickerEntry[], unifyOn: boolean): Mod
       value: e.modelId, label: e.displayName, platform: e.platform,
       platforms: [e.platform], providerCount: 1,
       sizeTier: sizeTier(e.sizeLabel), intelligenceRank: e.intelligenceRank ?? 999,
+      modelIds: [e.modelId],
     }))
   }
   // Group by groupKey (falling back to model_id for ungrouped rows), preserving
@@ -58,6 +60,9 @@ export function buildModelOptions(entries: PickerEntry[], unifyOn: boolean): Mod
     if (existing) {
       existing.providerCount++
       existing.platforms.push(e.platform)
+      if (!existing.modelIds.includes(e.modelId)) {
+        existing.modelIds.push(e.modelId)
+      }
       if (tier < existing.sizeTier || (tier === existing.sizeTier && rank < existing.intelligenceRank)) {
         existing.sizeTier = tier
         existing.intelligenceRank = rank
@@ -67,6 +72,7 @@ export function buildModelOptions(entries: PickerEntry[], unifyOn: boolean): Mod
         value: e.canonicalId ?? e.modelId, label: e.groupLabel ?? e.displayName,
         platform: e.platform, platforms: [e.platform], providerCount: 1,
         sizeTier: tier, intelligenceRank: rank,
+        modelIds: [e.modelId],
       })
     }
   }

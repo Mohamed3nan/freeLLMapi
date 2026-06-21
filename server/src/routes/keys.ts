@@ -2,25 +2,20 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
-import { resolveProvider } from '../providers/index.js';
+import { resolveProvider, getAllProviders } from '../providers/index.js';
 import { encrypt, decrypt, maskKey } from '../lib/crypto.js';
+import { discoverModelsForPlatform } from '../services/model-discovery.js';
+import type { Platform } from '@freellmapi/shared/types.js';
 
 export const keysRouter = Router();
-
-// Active providers — must match providers/index.ts registrations + shared/types.ts Platform.
-// Moonshot and MiniMax direct integrations were dropped in V4. HuggingFace
-// was dropped in V4 and re-added in V13 via the router.huggingface.co route.
-// SambaNova was dropped in V23 (free tier permanently retired).
-const PLATFORMS = [
-  'google', 'groq', 'cerebras', 'nvidia', 'mistral',
-  'openrouter', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama',
-  'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'ovh', 'agnes', 'reka', 'siliconflow', 'custom',
-] as const;
 
 // `key` is optional so keyless providers (Kilo's anonymous gateway) can be added
 // without one; the handler enforces a non-empty key for everyone else.
 const addKeySchema = z.object({
-  platform: z.enum(PLATFORMS),
+  platform: z.string().refine(
+    val => getAllProviders().some(p => p.platform === val),
+    { message: 'Invalid platform' }
+  ) as z.ZodType<Platform>,
   key: z.string().optional(),
   label: z.string().optional(),
 });
@@ -139,12 +134,9 @@ const customProviderSchema = z.object({
   displayName: z.string().optional(),
   apiKey: z.string().optional(),
   label: z.string().optional(),
-}).refine(
-  d => (d.model && d.model.trim().length > 0) || (d.models && d.models.length > 0),
-  { message: 'model or models is required' },
-);
+});
 
-keysRouter.post('/custom', (req: Request, res: Response) => {
+keysRouter.post('/custom', async (req: Request, res: Response) => {
   const parsed = customProviderSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
@@ -171,11 +163,6 @@ keysRouter.post('/custom', (req: Request, res: Response) => {
   for (const m of parsed.data.models ?? []) {
     if (typeof m === 'string') addEntry(m);
     else addEntry(m.model, m.displayName);
-  }
-
-  if (entries.length === 0) {
-    res.status(400).json({ error: { message: 'model or models is required' } });
-    return;
   }
 
   const db = getDb();
@@ -231,6 +218,26 @@ keysRouter.post('/custom', (req: Request, res: Response) => {
   });
 
   const { keyId, registered } = upsert();
+
+  // If no models were passed manually, immediately trigger on-demand model discovery
+  // so the endpoint's models populate in the database.
+  if (registered.length === 0) {
+    try {
+      await discoverModelsForPlatform('custom');
+    } catch (err) {
+      console.warn('[custom-key-post] Immediate model discovery failed:', err);
+    }
+    res.status(201).json({
+      success: true,
+      keyId,
+      platform: 'custom',
+      baseUrl,
+      models: [],
+      maskedKey: maskKey(rawKey),
+    });
+    return;
+  }
+
   // `model`/`displayName`/`modelDbId` echo the first model for older clients;
   // `models` carries the full set registered in this call.
   const first = registered[0]!;
@@ -287,7 +294,7 @@ keysRouter.delete('/:id', (req: Request, res: Response) => {
 // Toggle all keys for a platform
 keysRouter.patch('/platform/:platform', (req: Request, res: Response) => {
   const platform = req.params.platform as string;
-  if (!(PLATFORMS as readonly string[]).includes(platform)) {
+  if (!getAllProviders().some(p => p.platform === platform)) {
     res.status(400).json({ error: { message: `Invalid platform '${platform}'` } });
     return;
   }

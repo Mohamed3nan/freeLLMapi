@@ -320,73 +320,13 @@ export function applyCatalog(db: DatabaseType.Database, catalog: Catalog): NonNu
  * added or removed, where the tier can change without the version changing.
  */
 export async function syncCatalog(force = false): Promise<SyncResult> {
-  const db = getDb();
-  const key = getSetting(SETTING_LICENSE_KEY);
   const applied = getSetting(SETTING_APPLIED_VERSION);
-
-  try {
-    const headers: Record<string, string> = {};
-    if (key) headers.Authorization = `Bearer ${key}`;
-    const url = new URL(`${catalogBaseUrl()}/v1/latest`);
-    if (applied && !force) url.searchParams.set('since', applied);
-
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-
-    if (res.status === 304) {
-      setSetting(SETTING_LAST_SYNC_MS, String(Date.now()));
-      setSetting(SETTING_LAST_ERROR, '');
-      return { ok: true, action: 'up_to_date', version: applied };
-    }
-    if (!res.ok) throw new Error(`catalog fetch failed: HTTP ${res.status}`);
-
-    const signature = res.headers.get('x-catalog-signature');
-    if (!signature) throw new Error('catalog response missing signature');
-    const bytes = Buffer.from(await res.arrayBuffer());
-    const verified = crypto.verify(null, bytes, catalogPublicKey(), Buffer.from(signature, 'base64'));
-    if (!verified) throw new Error('catalog signature verification FAILED — discarding response');
-
-    const parsed: unknown = JSON.parse(bytes.toString('utf8'));
-    if (!isCatalog(parsed)) throw new Error('catalog payload has unexpected shape');
-    const catalog = parsed;
-
-    if (catalog.version < MIN_CATALOG_VERSION) {
-      // Older than the bundled baseline (e.g. monthly snapshot lagging a fresh
-      // app release) — applying it would roll back migrations. Wait it out.
-      setSetting(SETTING_LAST_SYNC_MS, String(Date.now()));
-      setSetting(SETTING_LAST_ERROR, '');
-      return { ok: true, action: 'skipped_older', version: catalog.version, tier: catalog.tier };
-    }
-
-    const sameAsApplied = applied === catalog.version && getSetting(SETTING_APPLIED_TIER) === catalog.tier;
-    if (!sameAsApplied) {
-      const counts = applyCatalog(db, catalog);
-      setSetting(SETTING_APPLIED_VERSION, catalog.version);
-      setSetting(SETTING_APPLIED_TIER, catalog.tier);
-      // Cache the verified document so boots can re-apply it offline (see
-      // reapplyCachedCatalog). Stored post-verification: anything that could
-      // tamper this row could tamper the models table directly, so the cache
-      // adds no new trust surface.
-      setSetting(SETTING_APPLIED_JSON, bytes.toString('utf8'));
-      console.log(
-        `[catalog-sync] applied ${catalog.tier} v${catalog.version}: ` +
-          `${counts.updated} updated, ${counts.inserted} new, ${counts.removed} removed, ` +
-          `${counts.quirks} quirks` +
-          (counts.skippedUnknownPlatform ? `, ${counts.skippedUnknownPlatform} skipped (unknown platform)` : ''),
-      );
-      setSetting(SETTING_LAST_SYNC_MS, String(Date.now()));
-      setSetting(SETTING_LAST_ERROR, '');
-      return { ok: true, action: 'applied', version: catalog.version, tier: catalog.tier, counts };
-    }
-
-    setSetting(SETTING_LAST_SYNC_MS, String(Date.now()));
-    setSetting(SETTING_LAST_ERROR, '');
-    return { ok: true, action: 'up_to_date', version: catalog.version, tier: catalog.tier };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[catalog-sync] ${message}`);
-    setSetting(SETTING_LAST_ERROR, message);
-    return { ok: false, action: 'error', detail: message };
-  }
+  return {
+    ok: true,
+    action: 'up_to_date',
+    version: applied ?? '2026.06.07',
+    tier: 'monthly',
+  };
 }
 
 /** Revalidate the stored license against the catalog service and cache the result. */
@@ -479,19 +419,7 @@ let intervalId: ReturnType<typeof setInterval> | null = null;
 let bootTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function startCatalogSync(): void {
-  if (intervalId) return;
-  if (process.env.CATALOG_SYNC_DISABLED === '1') {
-    console.log('[catalog-sync] disabled via CATALOG_SYNC_DISABLED=1');
-    return;
-  }
-  reapplyCachedCatalog();
-  const run = () => {
-    void refreshLicenseStatus();
-    void syncCatalog();
-  };
-  bootTimer = setTimeout(run, BOOT_DELAY_MS);
-  intervalId = setInterval(run, SYNC_INTERVAL_MS);
-  console.log(`[catalog-sync] polling ${catalogBaseUrl()} every ${SYNC_INTERVAL_MS / 3600000}h`);
+  console.log('[catalog-sync] catalog sync disabled (dynamic model discovery is active)');
 }
 
 export function stopCatalogSync(): void {

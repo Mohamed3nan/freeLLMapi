@@ -83,13 +83,13 @@ export async function discoverModelsForPlatform(platform: Platform): Promise<Dis
                     1, 0, 0, ?)
           `).run(m.id, m.name || humanizeModelId(m.id), m.context_window ?? null, keyRow.id);
 
-          // Add to fallback chain (disabled)
+          // Add to fallback chain (enabled)
           const modelRow = db.prepare("SELECT id FROM models WHERE platform = 'custom' AND model_id = ?").get(m.id) as { id: number } | undefined;
           if (modelRow) {
             const inChain = db.prepare('SELECT 1 FROM fallback_config WHERE model_db_id = ?').get(modelRow.id);
             if (!inChain) {
               const max = db.prepare('SELECT COALESCE(MAX(priority), 0) AS m FROM fallback_config').get() as { m: number };
-              db.prepare('INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?, ?, 0)').run(modelRow.id, max.m + 1);
+              db.prepare('INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?, ?, 1)').run(modelRow.id, max.m + 1);
             }
           }
           result.inserted++;
@@ -137,13 +137,13 @@ export async function discoverModelsForPlatform(platform: Platform): Promise<Dis
 
         insertModel.run(platform, m.id, m.name || humanizeModelId(m.id), m.context_window ?? null);
 
-        // Add to fallback chain (disabled) if not already present
+        // Add to fallback chain (enabled) if not already present
         const modelRow = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?').get(platform, m.id) as { id: number } | undefined;
         if (modelRow) {
           const inChain = db.prepare('SELECT 1 FROM fallback_config WHERE model_db_id = ?').get(modelRow.id);
           if (!inChain) {
             const max = db.prepare('SELECT COALESCE(MAX(priority), 0) AS m FROM fallback_config').get() as { m: number };
-            db.prepare('INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?, ?, 0)').run(modelRow.id, max.m + 1);
+            db.prepare('INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?, ?, 1)').run(modelRow.id, max.m + 1);
           }
         }
         result.inserted++;

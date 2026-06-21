@@ -315,12 +315,13 @@ export default function PlaygroundPage() {
         isNew: false,
         // Provider names for the multi-provider hover + search; empty when solo.
         platforms: o.providerCount > 1 ? o.platforms : [],
+        modelIds: o.modelIds || [],
       })),
   ]
   // Literal, case-insensitive substring match against name, providers, and id.
   const modelQ = modelQuery.trim().toLowerCase()
   const filteredOptions = modelQ
-    ? pickerOptions.filter(o => `${o.label} ${o.sub} ${o.value} ${o.platforms.join(' ')}`.toLowerCase().includes(modelQ))
+    ? pickerOptions.filter(o => `${o.label} ${o.sub} ${o.value} ${(o.platforms || []).join(' ')} ${(o.modelIds || []).join(' ')}`.toLowerCase().includes(modelQ))
     : pickerOptions
 
   function pickModel(v: string) {

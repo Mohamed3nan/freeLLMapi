@@ -324,9 +324,9 @@ describe('Custom Provider Endpoints', () => {
       expect(body.models[0].model).toBe('dupe:1');
     });
 
-    it('rejects a submit with neither model nor models', async () => {
+    it('allows a submit with neither model nor models (triggers discovery)', async () => {
       const { status } = await post(app, '/api/keys/custom', { baseUrl: 'http://127.0.0.1:9999/v1' });
-      expect(status).toBe(400);
+      expect(status).toBe(201);
     });
   });
 });

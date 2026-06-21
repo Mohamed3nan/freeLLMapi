@@ -43,6 +43,11 @@ describe('stripProviderSuffix', () => {
   it('leaves names without a trailing parenthetical alone', () => {
     expect(stripProviderSuffix('GPT-OSS 120B')).toBe('GPT-OSS 120B');
   });
+  it('strips leading publisher prefixes (e.g. Google: Gemini...)', () => {
+    expect(stripProviderSuffix('Google: Gemini 2.5 Flash')).toBe('Gemini 2.5 Flash');
+    expect(stripProviderSuffix('Anthropic: Claude Opus 4.8')).toBe('Claude Opus 4.8');
+    expect(stripProviderSuffix('Nex AGI: Nex-N2-Pro')).toBe('Nex-N2-Pro');
+  });
 });
 
 describe('normalizeGroupKey', () => {
