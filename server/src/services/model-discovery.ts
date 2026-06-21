@@ -61,9 +61,14 @@ export async function discoverModelsForPlatform(platform: Platform): Promise<Dis
         result.discovered += models.length;
 
         for (const m of models) {
-          const existing = db.prepare("SELECT id FROM models WHERE platform = 'custom' AND model_id = ?").get(m.id) as { id: number } | undefined;
+          const existing = db.prepare("SELECT id, enabled FROM models WHERE platform = 'custom' AND model_id = ?").get(m.id) as { id: number; enabled: number } | undefined;
           if (existing) {
-            result.skipped++;
+            if (existing.enabled === 0) {
+              db.prepare("UPDATE models SET enabled = 1 WHERE id = ?").run(existing.id);
+              result.inserted++;
+            } else {
+              result.skipped++;
+            }
             continue;
           }
 
@@ -75,7 +80,7 @@ export async function discoverModelsForPlatform(platform: Platform): Promise<Dis
                enabled, supports_vision, supports_tools, key_id)
             VALUES ('custom', ?, ?, 50, 50, 'Unknown',
                     NULL, NULL, NULL, NULL, '', ?,
-                    0, 0, 0, ?)
+                    1, 0, 0, ?)
           `).run(m.id, m.name || humanizeModelId(m.id), m.context_window ?? null, keyRow.id);
 
           // Add to fallback chain (disabled)
@@ -114,14 +119,19 @@ export async function discoverModelsForPlatform(platform: Platform): Promise<Dis
            enabled, supports_vision, supports_tools)
         VALUES (?, ?, ?, 50, 50, 'Unknown',
                 NULL, NULL, NULL, NULL, '', ?,
-                0, 0, 0)
+                1, 0, 0)
       `);
 
       for (const m of models) {
         // Skip models already in catalog — catalog metadata is authoritative
-        const existing = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?').get(platform, m.id);
+        const existing = db.prepare('SELECT id, enabled FROM models WHERE platform = ? AND model_id = ?').get(platform, m.id) as { id: number; enabled: number } | undefined;
         if (existing) {
-          result.skipped++;
+          if (existing.enabled === 0) {
+            db.prepare('UPDATE models SET enabled = 1 WHERE id = ?').run(existing.id);
+            result.inserted++;
+          } else {
+            result.skipped++;
+          }
           continue;
         }
 
@@ -152,6 +162,14 @@ export async function discoverModelsForPlatform(platform: Platform): Promise<Dis
  */
 export async function discoverAllModels(): Promise<DiscoveryResult[]> {
   const db = getDb();
+
+  // One-time fix: enable any custom or discovered models previously set to enabled = 0
+  db.prepare(`
+    UPDATE models
+    SET enabled = 1
+    WHERE enabled = 0 AND (platform = 'custom' OR key_id IS NOT NULL OR id IN (SELECT model_db_id FROM fallback_config))
+  `).run();
+
   const platforms = db.prepare(
     'SELECT DISTINCT platform FROM api_keys WHERE enabled = 1',
   ).all() as { platform: string }[];
