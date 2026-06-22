@@ -48,6 +48,7 @@ export interface GroupableRow {
   model_id: string;
   display_name: string;
   intelligence_rank?: number;
+  family?: string;
 }
 
 export interface ModelGroup {
@@ -72,19 +73,11 @@ export function setUnifyEnabled(on: boolean): void {
 }
 
 export function getUnifyOverrides(): UnifyOverrides {
-  const raw = getSetting(UNIFY_OVERRIDES_KEY);
-  if (!raw) return EMPTY_OVERRIDES;
-  try {
-    const parsed = unifyOverridesSchema.safeParse(JSON.parse(raw));
-    if (parsed.success) return parsed.data;
-  } catch { /* corrupt JSON → safe default */ }
   return EMPTY_OVERRIDES;
 }
 
 export function setUnifyOverrides(input: unknown): UnifyOverrides {
-  const norm = unifyOverridesSchema.parse(input);
-  setSetting(UNIFY_OVERRIDES_KEY, JSON.stringify(norm));
-  return norm;
+  return EMPTY_OVERRIDES;
 }
 
 // ── Normalization ────────────────────────────────────────────────────────────
@@ -128,6 +121,7 @@ export function normalizeGroupKey(displayName: string): string {
 // A stable, human-friendly slug for the API. Keeps digits and dots ("3.3").
 export function slugifyGroupLabel(label: string): string {
   const slug = (label ?? '').toLowerCase()
+    .replace(/\+/g, '-plus')
     .replace(/[^a-z0-9.\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-')
@@ -139,20 +133,6 @@ export function slugifyGroupLabel(label: string): string {
 // ── Grouping ─────────────────────────────────────────────────────────────────
 function memberId(row: GroupableRow): string {
   return `${row.platform}:${row.model_id}`;
-}
-
-// The grouping token for a row, after applying overrides. Split wins first
-// (forces a singleton/explicit key); then a merge redirects to its target;
-// otherwise the normalized display name.
-function tokenForRow(row: GroupableRow, ov: UnifyOverrides): string {
-  const mid = memberId(row);
-
-  const split = ov.splits.find(s => s.member === mid);
-  if (split) return split.groupKey ? normalizeGroupKey(split.groupKey) : `__split__:${mid}`;
-
-  const base = normalizeGroupKey(row.display_name);
-  const merge = ov.merges.find(mg => mg.keys.some(k => k === mid || normalizeGroupKey(k) === base));
-  return merge ? normalizeGroupKey(merge.into) : base;
 }
 
 // Assign a unique canonicalId to each group. Deterministic: groups sorted by
@@ -173,10 +153,10 @@ function assignCanonicalIds(groups: ModelGroup[]): void {
  * Group catalog rows into logical models. Pure — pass overrides explicitly in
  * tests; defaults to the persisted overrides.
  */
-export function groupRows(rows: GroupableRow[], ov: UnifyOverrides): ModelGroup[] {
+export function groupRows(rows: GroupableRow[], ov?: UnifyOverrides): ModelGroup[] {
   const map = new Map<string, ModelGroup>();
   for (const row of rows) {
-    const key = tokenForRow(row, ov);
+    const key = row.family || slugifyGroupLabel(stripProviderSuffix(row.display_name));
     let g = map.get(key);
     if (!g) {
       g = { groupKey: key, canonicalId: '', groupLabel: stripProviderSuffix(row.display_name), members: [] };
@@ -228,7 +208,7 @@ export function resolveRequestedIdToMembers(requested: string, groups: ModelGrou
 export function getModelGroups(): ModelGroup[] {
   const db = getDb();
   const rows = db.prepare(`
-    SELECT m.id as model_db_id, m.platform, m.model_id, m.display_name, m.intelligence_rank
+    SELECT m.id as model_db_id, m.platform, m.model_id, m.display_name, m.intelligence_rank, m.family
     FROM models m
   `).all() as GroupableRow[];
   return groupRows(rows, getUnifyOverrides());

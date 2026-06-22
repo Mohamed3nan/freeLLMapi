@@ -2,6 +2,7 @@ import { getDb, getSetting, setSetting } from '../db/index.js';
 import { resolveProvider, getAllProviders } from '../providers/index.js';
 import { decrypt } from '../lib/crypto.js';
 import type { Platform, DiscoveryResult } from '@freellmapi/shared/types.js';
+import { slugifyGroupLabel } from './model-groups.js';
 
 /**
  * model-discovery — auto-discover models from configured providers.
@@ -77,11 +78,17 @@ export async function discoverModelsForPlatform(platform: Platform): Promise<Dis
             INSERT OR IGNORE INTO models
               (platform, model_id, display_name, intelligence_rank, speed_rank, size_label,
                rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window,
-               enabled, supports_vision, supports_tools, key_id)
+               enabled, supports_vision, supports_tools, key_id, family)
             VALUES ('custom', ?, ?, 50, 50, 'Unknown',
                     NULL, NULL, NULL, NULL, '', ?,
-                    1, 0, 0, ?)
-          `).run(m.id, m.name || humanizeModelId(m.id), m.context_window ?? null, keyRow.id);
+                    1, 0, 0, ?, ?)
+          `).run(
+            m.id,
+            m.name || humanizeModelId(m.id),
+            m.context_window ?? null,
+            keyRow.id,
+            slugifyGroupLabel(m.name || humanizeModelId(m.id))
+          );
 
           // Add to fallback chain (enabled)
           const modelRow = db.prepare("SELECT id FROM models WHERE platform = 'custom' AND model_id = ?").get(m.id) as { id: number } | undefined;
@@ -116,10 +123,10 @@ export async function discoverModelsForPlatform(platform: Platform): Promise<Dis
         INSERT OR IGNORE INTO models
           (platform, model_id, display_name, intelligence_rank, speed_rank, size_label,
            rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window,
-           enabled, supports_vision, supports_tools)
+           enabled, supports_vision, supports_tools, family)
         VALUES (?, ?, ?, 50, 50, 'Unknown',
                 NULL, NULL, NULL, NULL, '', ?,
-                1, 0, 0)
+                1, 0, 0, ?)
       `);
 
       for (const m of models) {
@@ -135,7 +142,8 @@ export async function discoverModelsForPlatform(platform: Platform): Promise<Dis
           continue;
         }
 
-        insertModel.run(platform, m.id, m.name || humanizeModelId(m.id), m.context_window ?? null);
+        const name = m.name || humanizeModelId(m.id);
+        insertModel.run(platform, m.id, name, m.context_window ?? null, slugifyGroupLabel(name));
 
         // Add to fallback chain (enabled) if not already present
         const modelRow = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?').get(platform, m.id) as { id: number } | undefined;

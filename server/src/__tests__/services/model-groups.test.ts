@@ -6,13 +6,17 @@ import {
   groupRows,
   resolveRequestedIdToMembers,
   type GroupableRow,
-  type UnifyOverrides,
 } from '../../services/model-groups.js';
 
-const NO_OVERRIDES: UnifyOverrides = { merges: [], splits: [] };
-
-function row(model_db_id: number, platform: string, model_id: string, display_name: string, intelligence_rank = 50): GroupableRow {
-  return { model_db_id, platform, model_id, display_name, intelligence_rank };
+function row(model_db_id: number, platform: string, model_id: string, display_name: string, intelligence_rank = 50, family?: string): GroupableRow {
+  return {
+    model_db_id,
+    platform,
+    model_id,
+    display_name,
+    intelligence_rank,
+    family: family ?? slugifyGroupLabel(stripProviderSuffix(display_name)),
+  };
 }
 
 // A realistic slice of the catalog: the same logical models under many providers
@@ -63,35 +67,19 @@ describe('normalizeGroupKey', () => {
 
 describe('groupRows', () => {
   it('collapses one model served by many providers into a single group', () => {
-    const groups = groupRows(catalog(), NO_OVERRIDES);
-    const gptoss = groups.find(g => g.groupKey === 'gpt oss 120b');
+    const groups = groupRows(catalog());
+    const gptoss = groups.find(g => g.groupKey === 'gpt-oss-120b');
     expect(gptoss).toBeDefined();
     expect(gptoss!.members).toHaveLength(5);
     expect(gptoss!.groupLabel).toBe('GPT-OSS 120B'); // lowest intelligence_rank member
   });
 
   it('groups Llama 3.3 70B across differing model_ids but keeps fp8-fast separate', () => {
-    const groups = groupRows(catalog(), NO_OVERRIDES);
-    const llama = groups.find(g => g.groupKey === 'llama 3.3 70b');
+    const groups = groupRows(catalog());
+    const llama = groups.find(g => g.groupKey === 'llama-3.3-70b');
     expect(llama!.members.map(m => m.model_db_id).sort()).toEqual([6, 7, 8]);
-    // The fp8-fast variant normalizes to a DISTINCT key (merge only via override).
-    expect(groups.find(g => g.groupKey === 'llama 3.3 70b fp8 fast')).toBeDefined();
-  });
-
-  it('merges a variant into a base group via an override', () => {
-    const ov: UnifyOverrides = { merges: [{ into: 'Llama 3.3 70B', keys: ['llama 3.3 70b fp8 fast'] }], splits: [] };
-    const groups = groupRows(catalog(), ov);
-    const llama = groups.find(g => g.groupKey === 'llama 3.3 70b');
-    expect(llama!.members.map(m => m.model_db_id).sort()).toEqual([6, 7, 8, 9]);
-    expect(groups.find(g => g.groupKey === 'llama 3.3 70b fp8 fast')).toBeUndefined();
-  });
-
-  it('forces a member out of its group via a split override', () => {
-    const ov: UnifyOverrides = { merges: [], splits: [{ member: 'groq:openai/gpt-oss-120b' }] };
-    const groups = groupRows(catalog(), ov);
-    const gptoss = groups.find(g => g.groupKey === 'gpt oss 120b');
-    expect(gptoss!.members.map(m => m.model_db_id)).not.toContain(2);
-    expect(groups.some(g => g.members.length === 1 && g.members[0].model_db_id === 2)).toBe(true);
+    // The fp8-fast variant normalizes to a DISTINCT key.
+    expect(groups.find(g => g.groupKey === 'llama-3.3-70b-fp8-fast')).toBeDefined();
   });
 
   it('merges names that differ only by separator punctuation (Qwen3 Coder vs Qwen3-Coder)', () => {
@@ -99,7 +87,7 @@ describe('groupRows', () => {
       row(1, 'openrouter', 'qwen/qwen3-coder:free', 'Qwen3 Coder 480B'),
       row(2, 'ollama', 'qwen3-coder:480b', 'Qwen3-Coder 480B'),
     ];
-    const groups = groupRows(rows, NO_OVERRIDES);
+    const groups = groupRows(rows);
     expect(groups).toHaveLength(1);
     expect(groups[0].members.map(m => m.model_db_id).sort()).toEqual([1, 2]);
   });
@@ -110,7 +98,7 @@ describe('groupRows', () => {
       row(2, 'huggingface', 'deepseek-ai/DeepSeek-V4-Flash', 'DeepSeek V4 Flash (HF)'),
       row(3, 'opencode', 'deepseek-v4-flash-free', 'DeepSeek V4 Flash Free (OpenCode Zen)'),
     ];
-    const groups = groupRows(rows, NO_OVERRIDES);
+    const groups = groupRows(rows);
     expect(groups).toHaveLength(1);
     expect(groups[0].groupLabel).toBe('DeepSeek V4 Flash'); // "Free" dropped from the label
     expect(groups[0].members.map(m => m.model_db_id).sort()).toEqual([1, 2, 3]);
@@ -121,12 +109,15 @@ describe('groupRows', () => {
       row(1, 'cohere', 'command-r-08-2024', 'Command R'),
       row(2, 'cohere', 'command-r-plus-08-2024', 'Command R+'),
     ];
-    expect(groupRows(rows, NO_OVERRIDES)).toHaveLength(2);
+    expect(groupRows(rows)).toHaveLength(2);
   });
 
   it('assigns deterministic, unique canonical ids (collisions get -2)', () => {
-    const rows = [row(1, 'a', 'm1', 'Model X'), row(2, 'b', 'm2', 'Model X!')];
-    const groups = groupRows(rows, NO_OVERRIDES);
+    const rows = [
+      row(1, 'a', 'm1', 'Model X', 50, 'model-x'),
+      row(2, 'b', 'm2', 'Model X!', 50, 'model-x-alt'),
+    ];
+    const groups = groupRows(rows);
     const ids = groups.map(g => g.canonicalId).sort();
     expect(ids).toEqual(['model-x', 'model-x-2']);
   });
@@ -140,8 +131,8 @@ describe('slugifyGroupLabel', () => {
 });
 
 describe('resolveRequestedIdToMembers', () => {
-  const groups = groupRows(catalog(), NO_OVERRIDES);
-  const gptoss = groups.find(g => g.groupKey === 'gpt oss 120b')!;
+  const groups = groupRows(catalog());
+  const gptoss = groups.find(g => g.groupKey === 'gpt-oss-120b')!;
 
   it('resolves a canonical id to all member db ids', () => {
     expect(resolveRequestedIdToMembers(gptoss.canonicalId, groups)!.sort()).toEqual([1, 2, 3, 4, 5]);
@@ -157,3 +148,4 @@ describe('resolveRequestedIdToMembers', () => {
     expect(resolveRequestedIdToMembers('does-not-exist', groups)).toBeNull();
   });
 });
+

@@ -47,6 +47,7 @@ export function migrateDbSchema(db: Database.Database) {
   migrateMediaV1(db);
   migrateQuirksV1(db);
   ensureUnifiedKey(db);
+  migrateModelsV27FamilyColumn(db);
   migrateProfilesInit(db);
 }
 
@@ -68,6 +69,8 @@ function createTables(db: Database.Database) {
       context_window INTEGER,
       enabled INTEGER NOT NULL DEFAULT 1,
       supports_vision INTEGER NOT NULL DEFAULT 0,
+      supports_tools INTEGER NOT NULL DEFAULT 0,
+      family TEXT NOT NULL DEFAULT '',
       UNIQUE(platform, model_id)
     );
 
@@ -2287,5 +2290,46 @@ function migrateProfilesInit(db: Database.Database) {
       WHERE type = 'default' AND emoji != '⚙️'
     `).run();
   }
+}
+
+function migrateModelsV27FamilyColumn(db: Database.Database) {
+  const columns = db.prepare('PRAGMA table_info(models)').all() as { name: string }[];
+  if (!columns.some(col => col.name === 'family')) {
+    db.prepare("ALTER TABLE models ADD COLUMN family TEXT NOT NULL DEFAULT ''").run();
+  }
+
+  // Backfill existing rows
+  const rows = db.prepare('SELECT id, display_name FROM models').all() as { id: number; display_name: string }[];
+  const update = db.prepare('UPDATE models SET family = ? WHERE id = ?');
+  db.transaction(() => {
+    for (const r of rows) {
+      const label = stripProviderSuffix(r.display_name);
+      const fam = slugifyGroupLabel(label);
+      update.run(fam, r.id);
+    }
+  })();
+}
+
+function stripProviderSuffix(displayName: string): string {
+  let s = (displayName ?? '').trim();
+  s = s.replace(/^[^:]+:\s*/, '').trim();
+  let prev: string;
+  do {
+    prev = s;
+    s = s.replace(/\s*\([^()]*\)\s*$/, '').trim();
+    s = s.replace(/\s+free$/i, '').trim();
+  } while (s !== prev);
+  return s;
+}
+
+function slugifyGroupLabel(label: string): string {
+  const slug = (label ?? '').toLowerCase()
+    .replace(/\+/g, '-plus')
+    .replace(/[^a-z0-9.\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'model';
 }
 

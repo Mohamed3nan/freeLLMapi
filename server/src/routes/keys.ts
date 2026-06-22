@@ -6,6 +6,7 @@ import { resolveProvider, getAllProviders } from '../providers/index.js';
 import { encrypt, decrypt, maskKey } from '../lib/crypto.js';
 import { discoverModelsForPlatform } from '../services/model-discovery.js';
 import type { Platform } from '@freellmapi/shared/types.js';
+import { slugifyGroupLabel } from '../services/model-groups.js';
 
 export const keysRouter = Router();
 
@@ -196,11 +197,11 @@ keysRouter.post('/custom', async (req: Request, res: Response) => {
       db.prepare(`
         INSERT INTO models
           (platform, model_id, display_name, intelligence_rank, speed_rank, size_label,
-           rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window, enabled, key_id)
-        VALUES ('custom', ?, ?, 50, 50, 'Custom', NULL, NULL, NULL, NULL, '', NULL, 1, ?)
+           rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window, enabled, key_id, family)
+        VALUES ('custom', ?, ?, 50, 50, 'Custom', NULL, NULL, NULL, NULL, '', NULL, 1, ?, ?)
         ON CONFLICT(platform, model_id)
-        DO UPDATE SET display_name = excluded.display_name, key_id = excluded.key_id, enabled = 1
-      `).run(modelId, displayName, keyId);
+        DO UPDATE SET display_name = excluded.display_name, key_id = excluded.key_id, enabled = 1, family = excluded.family
+      `).run(modelId, displayName, keyId, slugifyGroupLabel(displayName));
 
       const modelRow = db.prepare("SELECT id FROM models WHERE platform = 'custom' AND model_id = ?").get(modelId) as { id: number };
 

@@ -39,8 +39,8 @@ function seed() {
   const db = getDb();
   db.exec('DELETE FROM fallback_config; DELETE FROM api_keys; DELETE FROM models; DELETE FROM requests;');
   const insModel = db.prepare(`
-    INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, size_label, rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, enabled)
-    VALUES (?, ?, ?, ?, 1, ?, 100000, 1000000, 100000000, 1000000000, ?, 1)
+    INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, size_label, rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, enabled, family)
+    VALUES (?, ?, ?, ?, 1, ?, 100000, 1000000, 100000000, 1000000000, ?, 1, ?)
   `);
   const insFb = db.prepare('INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?, ?, 1)');
   const insHist = db.prepare(`
@@ -49,7 +49,7 @@ function seed() {
   `);
 
   PROFILES.forEach((p, i) => {
-    insModel.run(p.platform, p.modelId, p.name, p.intelligenceRank, p.sizeLabel, p.budget);
+    insModel.run(p.platform, p.modelId, p.name, p.intelligenceRank, p.sizeLabel, p.budget, p.modelId);
     const id = (db.prepare('SELECT id FROM models WHERE platform=? AND model_id=?').get(p.platform, p.modelId) as { id: number }).id;
     insFb.run(id, i + 1);
     const { encrypted, iv, authTag } = encrypt(`key-${p.platform}`);

@@ -4,6 +4,7 @@ import { getDb, getSetting, setSetting } from '../db/index.js';
 import { hasProvider } from '../providers/index.js';
 import { MEDIA_PLATFORMS } from './media.js';
 import type { Platform } from '@freellmapi/shared/types.js';
+import { stripProviderSuffix, slugifyGroupLabel } from './model-groups.js';
 
 // Generative-media modalities are routed into the separate media_models table
 // (see services/media.ts), never into the chat `models` table.
@@ -162,16 +163,16 @@ export function applyCatalog(db: DatabaseType.Database, catalog: Catalog): NonNu
       size_label = @sizeLabel, rpm_limit = @rpm, rpd_limit = @rpd, tpm_limit = @tpm, tpd_limit = @tpd,
       monthly_token_budget = @monthlyTokenBudget, context_window = @contextWindow,
       supports_vision = @supportsVision, supports_tools = @supportsTools,
-      enabled = @enabled
+      enabled = @enabled, family = @family
     WHERE id = @id
   `);
   const insertModel = db.prepare(`
     INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, size_label,
                         rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window,
-                        enabled, supports_vision, supports_tools)
+                        enabled, supports_vision, supports_tools, family)
     VALUES (@platform, @modelId, @displayName, @intelligenceRank, @speedRank, @sizeLabel,
             @rpm, @rpd, @tpm, @tpd, @monthlyTokenBudget, @contextWindow,
-            @enabled, @supportsVision, @supportsTools)
+            @enabled, @supportsVision, @supportsTools, @family)
   `);
 
   // Generative-media models go to their own table (never the chat router's pool).
@@ -228,6 +229,7 @@ export function applyCatalog(db: DatabaseType.Database, catalog: Catalog): NonNu
       inCatalog.add(`${m.platform}:${m.modelId}`);
 
       const row = selectModel.get(m.platform, m.modelId) as { id: number; enabled: number } | undefined;
+      const family = slugifyGroupLabel(stripProviderSuffix(m.displayName));
       const fields = {
         displayName: m.displayName,
         intelligenceRank: m.intelligenceRank,
@@ -241,6 +243,7 @@ export function applyCatalog(db: DatabaseType.Database, catalog: Catalog): NonNu
         contextWindow: m.contextWindow,
         supportsVision: m.supportsVision ? 1 : 0,
         supportsTools: m.supportsTools ? 1 : 0,
+        family,
       };
       if (row) {
         // Catalog disable wins (dead upstream); local disable also wins.
