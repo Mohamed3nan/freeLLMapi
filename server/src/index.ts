@@ -3,7 +3,6 @@ import { createApp } from './app.js';
 import { initDb, getSetting } from './db/index.js';
 import { startHealthChecker } from './services/health.js';
 import { applyProxyUrl, applyProxyEnabled, applyProxyBypass } from './lib/proxy.js';
-import { startCatalogSync } from './services/catalog-sync.js';
 import { installProcessSafetyNet } from './lib/process-safety-net.js';
 import { startModelDiscovery } from './services/model-discovery.js';
 
@@ -33,7 +32,6 @@ async function main() {
     console.log(`Server running on http://${display}:${PORT}`);
     console.log(`Proxy endpoint: http://${display}:${PORT}/v1/chat/completions`);
     startHealthChecker();
-    startCatalogSync();
     startModelDiscovery();
   };
 
