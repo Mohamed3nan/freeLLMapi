@@ -12,7 +12,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/freellmapi
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/freellmapi
 
 # Each platform builds NATIVELY (ubuntu-24.04-arm is free for public repos) —
 # no QEMU. Emulated arm64 builds took ~20 min cold (better-sqlite3 compiles
@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Downcase image name
         run: |
-          echo "IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+          echo "IMAGE=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v4
 
@@ -95,7 +95,7 @@ jobs:
     steps:
       - name: Downcase image name
         run: |
-          echo "IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+          echo "IMAGE=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
 
       - name: Download digests
         uses: actions/download-artifact@v4
