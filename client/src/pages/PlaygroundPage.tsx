@@ -300,8 +300,8 @@ export default function PlaygroundPage() {
   // rank within the tier, name as the final tiebreaker. (Raw intelligence_rank is
   // per-provider, not global, so tier-first matches the server's preset; #135.)
   const pickerOptions = [
-    { value: 'auto', label: t('playground.autoModel'), sub: '', isNew: false, platforms: [] as string[] },
-    { value: 'fusion', label: t('playground.fusionModel'), sub: '', isNew: true, platforms: [] as string[] },
+    { value: 'auto', label: t('playground.autoModel'), sub: '', isNew: false, platforms: [] as string[], modelIds: [] as string[] },
+    { value: 'fusion', label: t('playground.fusionModel'), sub: '', isNew: true, platforms: [] as string[], modelIds: [] as string[] },
     ...modelOptions
       .slice()
       .sort((a, b) =>

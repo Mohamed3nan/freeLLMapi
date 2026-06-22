@@ -313,3 +313,47 @@ export interface RateLimitStatus {
   available: boolean;
   nextResetAt: string | null;
 }
+
+// ---- Model Auto-Discovery Types ----
+
+export interface DiscoveryResult {
+  platform: Platform;
+  discovered: number;
+  inserted: number;
+  skipped: number;
+  errors?: string;
+}
+
+// ---- Provider Quota Observability ----
+
+export type QuotaMetric = 'requests' | 'tokens' | 'credits' | 'neurons';
+export type QuotaResetStrategy = 'fixed_calendar' | 'rolling_window' | 'token_bucket' | 'provider_reported' | 'unknown';
+export type QuotaObservationSource = 'header' | 'quota_api' | 'error_body' | 'local_usage' | 'documentation' | 'probe';
+
+export interface ProviderQuotaState {
+  platform: Platform;
+  keyId: number;
+  quotaPoolKey: string;
+  metric: QuotaMetric;
+  limit: number | null;
+  remaining: number | null;
+  resetAt: string | null;
+  resetStrategy: QuotaResetStrategy;
+  source: QuotaObservationSource;
+  confidence: number;
+  notes: string | null;
+  observedAt: string;
+  updatedAt: string;
+}
+
+export interface ProviderQuotaObservation extends ProviderQuotaState {
+  id: string;
+  statusCode: number | null;
+  retryAfterMs: number | null;
+  providerAccountId: string | null;
+  modelId: string | null;
+  endpoint: string | null;
+  rawJson: string | null;
+  createdAt: string;
+}
+

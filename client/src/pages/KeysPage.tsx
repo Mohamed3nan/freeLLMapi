@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
@@ -337,15 +337,7 @@ function ProxySettingsSection() {
   )
 }
 
-// Split a free-text model field on commas / newlines into a clean id list,
-// dropping blanks and duplicates so one endpoint can take several models. (#281)
-function parseModelList(raw: string): string[] {
-  const seen = new Set<string>()
-  return raw
-    .split(/[\n,]+/)
-    .map(s => s.trim())
-    .filter(s => s.length > 0 && !seen.has(s) && seen.add(s))
-}
+
 
 function CustomProviderSection() {
   const { t } = useI18n()
