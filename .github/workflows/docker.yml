@@ -2,10 +2,10 @@ name: Docker
 
 on:
   push:
-    branches: [main]
+    branches: [anan]
     tags: ['v*.*.*']
   pull_request:
-    branches: [main]
+    branches: [anan]
 
 permissions:
   contents: read
