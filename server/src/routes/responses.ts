@@ -7,6 +7,7 @@ import type {
   ChatToolCall,
   ChatToolDefinition,
   ChatToolChoice,
+  Platform,
 } from '@freellmapi/shared/types.js';
 import { routeRequest, recordRateLimitHit, recordSuccess, hasEnabledToolsModel, type RouteResult } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, learnLimitFromError } from '../services/ratelimit.js';
@@ -28,6 +29,7 @@ import {
   logRequest,
 } from './proxy.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
+import { inferQuotaPoolKey, type QuotaObservationContext } from '../services/provider-quota.js';
 
 export const responsesRouter = Router();
 
@@ -264,6 +266,17 @@ export function buildResponseObject(opts: {
   };
 }
 
+function quotaContextForRoute(route: RouteResult, endpoint: string): QuotaObservationContext {
+  return {
+    platform: route.platform as Platform,
+    keyId: route.keyId,
+    modelId: route.modelId,
+    quotaPoolKey: inferQuotaPoolKey(route.platform as Platform, route.modelId),
+    endpoint,
+    origin: 'responses',
+  };
+}
+
 responsesRouter.post('/responses', async (req: Request, res: Response) => {
   const start = Date.now();
   const requestGroupId = getRequestGroupId(req);
@@ -419,7 +432,13 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           }
         };
 
-        const gen = route.provider.streamChatCompletion(route.apiKey, messages, route.modelId, completionOpts);
+        const gen = route.provider.streamChatCompletion(
+          route.apiKey,
+          messages,
+          route.modelId,
+          completionOpts,
+          quotaContextForRoute(route, 'responses'),
+        );
 
         for await (const chunk of gen) {
           // In-band upstream error frame ({"error":...} inside a 200 SSE
@@ -634,7 +653,13 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null);
         return;
       } else {
-        const result = await route.provider.chatCompletion(route.apiKey, messages, route.modelId, completionOpts);
+        const result = await route.provider.chatCompletion(
+          route.apiKey,
+          messages,
+          route.modelId,
+          completionOpts,
+          quotaContextForRoute(route, 'responses'),
+        );
 
         const msg = result.choices[0]?.message;
         let text = contentToString(msg?.content ?? '');

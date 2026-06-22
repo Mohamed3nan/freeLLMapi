@@ -2,6 +2,7 @@ import { getDb } from '../db/index.js';
 import { resolveProvider } from '../providers/index.js';
 import { decrypt } from '../lib/crypto.js';
 import type { Platform, KeyStatus } from '@freellmapi/shared/types.js';
+import { inferQuotaPoolKey } from './provider-quota.js';
 
 const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const CONSECUTIVE_FAILURES_TO_DISABLE = 3;
@@ -19,7 +20,13 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
 
   try {
     const apiKey = decrypt(row.encrypted_key, row.iv, row.auth_tag);
-    const isValid = await provider.validateKey(apiKey);
+    const isValid = await provider.validateKey(apiKey, {
+      platform: row.platform as Platform,
+      keyId,
+      quotaPoolKey: inferQuotaPoolKey(row.platform as Platform, null),
+      endpoint: 'models',
+      origin: 'health',
+    });
 
     const status: KeyStatus = isValid ? 'healthy' : 'invalid';
 

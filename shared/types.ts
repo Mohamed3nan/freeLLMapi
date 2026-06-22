@@ -13,6 +13,7 @@ export type Platform =
   | 'cerebras'
   | 'nvidia'
   | 'mistral'
+  | 'sambanova'
   | 'openrouter'
   | 'github'
   | 'cohere'
@@ -194,7 +195,7 @@ export type ChatToolChoice =
 // with no `type` — plus bare strings inside arrays. We accept all of it on
 // the wire and flatten to string for providers that don't support arrays
 // (Cohere, Cloudflare). See server/src/lib/content.ts. (#200)
-export type ChatContentBlock = string | { type?: string; text?: string; [key: string]: unknown };
+export type ChatContentBlock = string | { type?: string; text?: string;[key: string]: unknown };
 export type ChatContent = string | null | ChatContentBlock[];
 
 export interface ChatMessage {
@@ -312,14 +313,3 @@ export interface RateLimitStatus {
   available: boolean;
   nextResetAt: string | null;
 }
-
-// ---- Model Auto-Discovery Types ----
-
-export interface DiscoveryResult {
-  platform: Platform;
-  discovered: number;
-  inserted: number;
-  skipped: number;
-  errors?: string;
-}
-

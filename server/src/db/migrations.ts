@@ -173,6 +173,50 @@ function createTables(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_rate_limit_usage_lookup ON rate_limit_usage(platform, model_id, key_id, kind, created_at_ms);
     CREATE INDEX IF NOT EXISTS idx_rate_limit_cooldowns_expires ON rate_limit_cooldowns(expires_at_ms);
     CREATE INDEX IF NOT EXISTS idx_api_keys_platform ON api_keys(platform);
+
+    CREATE TABLE IF NOT EXISTS provider_quota_state (
+      platform TEXT NOT NULL,
+      key_id INTEGER NOT NULL,
+      quota_pool_key TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      limit_value INTEGER,
+      remaining_value INTEGER,
+      reset_at TEXT,
+      reset_strategy TEXT NOT NULL DEFAULT 'unknown',
+      source TEXT NOT NULL DEFAULT 'probe',
+      confidence REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      observed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (platform, key_id, quota_pool_key, metric)
+    );
+    CREATE INDEX IF NOT EXISTS idx_provider_quota_state_platform ON provider_quota_state(platform, key_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_provider_quota_state_reset_at ON provider_quota_state(reset_at);
+
+    CREATE TABLE IF NOT EXISTS provider_quota_observations (
+      id TEXT PRIMARY KEY,
+      platform TEXT NOT NULL,
+      key_id INTEGER NOT NULL,
+      provider_account_id TEXT,
+      model_id TEXT,
+      quota_pool_key TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      status_code INTEGER,
+      limit_value INTEGER,
+      remaining_value INTEGER,
+      reset_at TEXT,
+      retry_after_ms INTEGER,
+      reset_strategy TEXT NOT NULL DEFAULT 'unknown',
+      source TEXT NOT NULL DEFAULT 'probe',
+      confidence REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      raw_json TEXT,
+      endpoint TEXT,
+      observed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_provider_quota_observations_platform ON provider_quota_observations(platform, key_id, observed_at);
+    CREATE INDEX IF NOT EXISTS idx_provider_quota_observations_reset_at ON provider_quota_observations(reset_at);
   `);
 
   ensureRequestKeyIdColumn(db);
