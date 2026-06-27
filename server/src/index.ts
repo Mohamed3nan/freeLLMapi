@@ -4,6 +4,8 @@ import { initDb, getSetting } from './db/index.js';
 import { startHealthChecker } from './services/health.js';
 import { applyProxyUrl, applyProxyEnabled, applyProxyBypass } from './lib/proxy.js';
 import { installProcessSafetyNet } from './lib/process-safety-net.js';
+import { NodeScheduler } from './lib/scheduler.js';
+import { loadConfig } from './lib/config.js';
 import { startModelDiscovery } from './services/model-discovery.js';
 
 const PORT = process.env.PORT ?? 3001;
@@ -13,9 +15,14 @@ const PORT = process.env.PORT ?? 3001;
 const HOST = process.env.HOST ?? '::';
 
 async function main() {
+  const config = loadConfig();
+  const { port: PORT, host: HOST } = config;
+
   // Install first so a late provider socket reset (undici HTTP/2 error with no
   // listener) can't take the proxy down. Genuine bugs still exit 1.
   installProcessSafetyNet();
+
+  const scheduler = new NodeScheduler();
 
   initDb();
 
@@ -25,13 +32,13 @@ async function main() {
   applyProxyEnabled(getSetting('proxy_enabled') !== '0'); // default: enabled
   applyProxyBypass(getSetting('proxy_bypass') ?? '');
 
-  const app = createApp();
+  const app = createApp(config);
 
   const onReady = (host: string) => () => {
     const display = host.includes(':') ? `[${host}]` : host;
     console.log(`Server running on http://${display}:${PORT}`);
     console.log(`Proxy endpoint: http://${display}:${PORT}/v1/chat/completions`);
-    startHealthChecker();
+    startHealthChecker(scheduler);
     startModelDiscovery();
   };
 

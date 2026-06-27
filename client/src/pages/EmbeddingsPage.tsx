@@ -19,6 +19,7 @@ interface ProviderEntry {
   enabled: boolean
   quotaLabel: string
   keyCount: number
+  isCustom?: boolean
 }
 
 interface Family {
@@ -70,6 +71,15 @@ export default function EmbeddingsPage() {
       queryClient.invalidateQueries({ queryKey: ['embeddings'] })
       setLocalFamilies(null)
       setLocalDefault(null)
+    },
+  })
+
+  const deleteCustom = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/embeddings/custom/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['embeddings'] })
+      queryClient.invalidateQueries({ queryKey: ['embeddings', 'usage'] })
+      setLocalFamilies(null)
     },
   })
 
@@ -201,6 +211,17 @@ export default function EmbeddingsPage() {
                         checked={p.enabled}
                         onCheckedChange={(c) => updateProvider(f.family, p.id, { enabled: c })}
                       />
+                      {p.isCustom && (
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={() => deleteCustom.mutate(p.id)}
+                          disabled={deleteCustom.isPending}
+                        >
+                          {t('common.remove')}
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>

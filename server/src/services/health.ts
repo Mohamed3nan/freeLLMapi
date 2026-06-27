@@ -3,6 +3,7 @@ import { resolveProvider } from '../providers/index.js';
 import { decrypt } from '../lib/crypto.js';
 import type { Platform, KeyStatus } from '@freellmapi/shared/types.js';
 import { inferQuotaPoolKey } from './provider-quota.js';
+import type { Scheduler } from '../lib/scheduler.js';
 
 const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const CONSECUTIVE_FAILURES_TO_DISABLE = 3;
@@ -70,19 +71,19 @@ export async function checkAllKeys(): Promise<void> {
   console.log(`[Health] Check complete.`);
 }
 
-let intervalId: ReturnType<typeof setInterval> | null = null;
+let cancelHealthCheck: (() => void) | null = null;
 
-export function startHealthChecker(): void {
-  if (intervalId) return;
+export function startHealthChecker(scheduler: Scheduler): void {
+  if (cancelHealthCheck) return;
   console.log(`[Health] Starting health checker (every ${CHECK_INTERVAL_MS / 1000}s)`);
-  intervalId = setInterval(() => {
-    checkAllKeys().catch(err => console.error('[Health] Check failed:', err));
-  }, CHECK_INTERVAL_MS);
+  cancelHealthCheck = scheduler.every(CHECK_INTERVAL_MS, () =>
+    checkAllKeys().catch(err => console.error('[Health] Check failed:', err)),
+  );
 }
 
 export function stopHealthChecker(): void {
-  if (intervalId) {
-    clearInterval(intervalId);
-    intervalId = null;
+  if (cancelHealthCheck) {
+    cancelHealthCheck();
+    cancelHealthCheck = null;
   }
 }

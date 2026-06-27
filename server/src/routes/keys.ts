@@ -33,6 +33,45 @@ keysRouter.get('/', (_req: Request, res: Response) => {
   const db = getDb();
   const rows = db.prepare('SELECT * FROM api_keys ORDER BY created_at DESC').all() as any[];
 
+  const customModels = [
+    ...db.prepare(`
+      SELECT key_id, id, 'chat' AS kind, model_id, display_name, NULL AS family
+        FROM models
+       WHERE platform = 'custom' AND key_id IS NOT NULL
+    `).all() as any[],
+    ...db.prepare(`
+      SELECT key_id, id, 'embedding' AS kind, model_id, display_name, family
+        FROM embedding_models
+       WHERE platform = 'custom' AND key_id IS NOT NULL
+    `).all() as any[],
+    ...db.prepare(`
+      SELECT key_id, id, modality AS kind, model_id, display_name, NULL AS family
+        FROM media_models
+       WHERE platform = 'custom' AND key_id IS NOT NULL
+    `).all() as any[],
+  ];
+  const modelsByKeyId = new Map<number, any[]>();
+  for (const m of customModels) {
+    const keyId = Number(m.key_id);
+    if (!Number.isInteger(keyId)) continue;
+    const list = modelsByKeyId.get(keyId) ?? [];
+    list.push({
+      id: m.id,
+      kind: m.kind,
+      modelId: m.model_id,
+      displayName: m.display_name,
+      family: m.family ?? null,
+    });
+    modelsByKeyId.set(keyId, list);
+  }
+  for (const list of modelsByKeyId.values()) {
+    list.sort((a, b) => {
+      const ka = ['chat', 'embedding', 'image', 'audio'].indexOf(a.kind);
+      const kb = ['chat', 'embedding', 'image', 'audio'].indexOf(b.kind);
+      return (ka - kb) || String(a.displayName).localeCompare(String(b.displayName));
+    });
+  }
+
   const keys = rows.map(row => {
     let maskedKey = '****';
     try {
@@ -51,6 +90,7 @@ keysRouter.get('/', (_req: Request, res: Response) => {
       enabled: row.enabled === 1,
       createdAt: row.created_at,
       lastCheckedAt: row.last_checked_at,
+      models: row.platform === 'custom' ? (modelsByKeyId.get(row.id) ?? []) : undefined,
     };
   });
 
@@ -146,8 +186,8 @@ keysRouter.post('/custom', async (req: Request, res: Response) => {
 
   const baseUrl = parsed.data.baseUrl.trim().replace(/\/+$/, '');
   // Local servers often need no key; keep a sentinel so there's always a bearer.
-  const rawKey = parsed.data.apiKey?.trim() || 'no-key';
-  const label = parsed.data.label ?? 'Custom';
+  const providedKey = parsed.data.apiKey?.trim() || undefined;
+  const label = parsed.data.label?.trim() || undefined;
 
   // Flatten singular + plural inputs into one list, dedupe by model id, drop
   // blanks. The singular `displayName` only applies to a lone `model` (it can't
@@ -174,18 +214,32 @@ keysRouter.post('/custom', async (req: Request, res: Response) => {
     const existing = db.prepare("SELECT id FROM api_keys WHERE platform = 'custom' AND base_url = ? LIMIT 1")
       .get(baseUrl) as { id: number } | undefined;
     let keyId: number;
+    let storedKeyForMask = providedKey ?? 'no-key';
     if (existing) {
-      const { encrypted, iv, authTag } = encrypt(rawKey);
-      db.prepare("UPDATE api_keys SET label = ?, encrypted_key = ?, iv = ?, auth_tag = ?, status = 'unknown', enabled = 1 WHERE id = ?")
-        .run(label, encrypted, iv, authTag, existing.id);
       keyId = existing.id;
+      if (providedKey) {
+        const { encrypted, iv, authTag } = encrypt(providedKey);
+        db.prepare("UPDATE api_keys SET label = COALESCE(?, label), encrypted_key = ?, iv = ?, auth_tag = ?, status = 'unknown', enabled = 1 WHERE id = ?")
+          .run(label ?? null, encrypted, iv, authTag, existing.id);
+        storedKeyForMask = providedKey;
+      } else {
+        try {
+          storedKeyForMask = decrypt(existing.encrypted_key, existing.iv, existing.auth_tag);
+        } catch {
+          storedKeyForMask = 'no-key';
+        }
+        db.prepare("UPDATE api_keys SET label = COALESCE(?, label), status = 'unknown', enabled = 1 WHERE id = ?")
+          .run(label ?? null, existing.id);
+      }
     } else {
-      const { encrypted, iv, authTag } = encrypt(rawKey);
+      const keyToStore = providedKey ?? 'no-key';
+      const { encrypted, iv, authTag } = encrypt(keyToStore);
       const r = db.prepare(`
         INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, base_url)
         VALUES ('custom', ?, ?, ?, ?, 'unknown', 1, ?)
-      `).run(label, encrypted, iv, authTag, baseUrl);
+      `).run(label ?? 'Custom', encrypted, iv, authTag, baseUrl);
       keyId = Number(r.lastInsertRowid);
+      storedKeyForMask = keyToStore;
     }
 
     const registered: { modelDbId: number; model: string; displayName: string }[] = [];
@@ -215,10 +269,10 @@ keysRouter.post('/custom', async (req: Request, res: Response) => {
       registered.push({ modelDbId: modelRow.id, model: modelId, displayName });
     }
 
-    return { keyId, registered };
+    return { keyId, registered, storedKeyForMask };
   });
 
-  const { keyId, registered } = upsert();
+  const { keyId, registered, storedKeyForMask } = upsert();
 
   // If no models were passed manually, immediately trigger on-demand model discovery
   // so the endpoint's models populate in the database.
@@ -234,7 +288,7 @@ keysRouter.post('/custom', async (req: Request, res: Response) => {
       platform: 'custom',
       baseUrl,
       models: [],
-      maskedKey: maskKey(rawKey),
+      maskedKey: maskKey(storedKeyForMask),
     });
     return;
   }
@@ -251,7 +305,7 @@ keysRouter.post('/custom', async (req: Request, res: Response) => {
     model: first.model,
     displayName: first.displayName,
     models: registered,
-    maskedKey: maskKey(rawKey),
+    maskedKey: maskKey(storedKeyForMask),
   });
 });
 
@@ -278,12 +332,26 @@ keysRouter.delete('/:id', (req: Request, res: Response) => {
     // theirs. Legacy rows (key_id NULL) are swept once no custom keys remain,
     // so they never linger in the fallback chain forever (#189).
     if (row.platform === 'custom') {
+      const defaultEmbedding = db.prepare("SELECT value FROM settings WHERE key = 'embeddings_default_family'").get() as { value: string } | undefined;
       db.prepare("DELETE FROM fallback_config WHERE model_db_id IN (SELECT id FROM models WHERE platform = 'custom' AND key_id = ?)").run(id);
       db.prepare("DELETE FROM models WHERE platform = 'custom' AND key_id = ?").run(id);
+      db.prepare("DELETE FROM embedding_models WHERE platform = 'custom' AND key_id = ?").run(id);
+      db.prepare("DELETE FROM media_models WHERE platform = 'custom' AND key_id = ?").run(id);
       const remaining = db.prepare("SELECT COUNT(*) AS n FROM api_keys WHERE platform = 'custom'").get() as { n: number };
       if (remaining.n === 0) {
         db.prepare("DELETE FROM fallback_config WHERE model_db_id IN (SELECT id FROM models WHERE platform = 'custom')").run();
         db.prepare("DELETE FROM models WHERE platform = 'custom'").run();
+        db.prepare("DELETE FROM embedding_models WHERE platform = 'custom'").run();
+        db.prepare("DELETE FROM media_models WHERE platform = 'custom'").run();
+      }
+      if (defaultEmbedding) {
+        const stillExists = db.prepare('SELECT 1 FROM embedding_models WHERE family = ? LIMIT 1').get(defaultEmbedding.value);
+        if (!stillExists) {
+          const replacement = db.prepare('SELECT family FROM embedding_models ORDER BY family, priority LIMIT 1').get() as { family: string } | undefined;
+          if (replacement) {
+            db.prepare("UPDATE settings SET value = ? WHERE key = 'embeddings_default_family'").run(replacement.family);
+          }
+        }
       }
     }
   });
