@@ -7,52 +7,31 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
-import { getAllPenalties, getRoutingScores, getRoutingStrategy, setRoutingStrategy, setCustomWeights } from '../services/router.js';
-import { BANDIT_PRESETS, type RoutingStrategy } from '../services/scoring.js';
+import { getAllPenalties, getRoutingScores, getDefaultChatModel, setDefaultChatModel } from '../services/router.js';
 import { parseBudget } from '../lib/budget.js';
 import { getModelGroups } from '../services/model-groups.js';
 
 export const fallbackRouter = Router();
 
-// ── Bandit routing strategy ─────────────────────────────────────────────────
-// GET  /routing → active strategy, preset weights, and the per-model score
-//                 breakdown (reliability / speed / intelligence + guardrails).
+// GET /routing → return priority routing status for backward compatibility
 fallbackRouter.get('/routing', (_req: Request, res: Response) => {
   res.json(getRoutingScores());
 });
 
-const routingSchema = z.object({
-  strategy: z.enum(['priority', 'balanced', 'smartest', 'fastest', 'reliable', 'custom']),
-  // Only meaningful with strategy 'custom': the user's weight vector. Any
-  // non-negative vector is accepted; setCustomWeights renormalizes to sum 1.
-  weights: z.object({
-    reliability: z.number().nonnegative(),
-    speed: z.number().nonnegative(),
-    intelligence: z.number().nonnegative(),
-  }).optional(),
+// GET /default → get default chat model
+fallbackRouter.get('/default', (_req: Request, res: Response) => {
+  res.json({ defaultModel: getDefaultChatModel() });
 });
 
-// PUT /routing → switch strategy. Presets are just weight vectors over the three
-// axes; 'priority' falls back to the legacy manual chain order; 'custom' uses
-// the user's saved weights (optionally updated in the same request).
-fallbackRouter.put('/routing', (req: Request, res: Response) => {
-  const parsed = routingSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
-    return;
+// PUT /default → set default chat model
+fallbackRouter.put('/default', (req: Request, res: Response) => {
+  const { defaultModel } = req.body ?? {};
+  if (typeof defaultModel === 'string' && defaultModel.trim()) {
+    setDefaultChatModel(defaultModel.trim());
+    res.json({ success: true, defaultModel: getDefaultChatModel() });
+  } else {
+    res.status(400).json({ error: { message: 'defaultModel string required' } });
   }
-  // Persist the weights before flipping the strategy so the new mode reads the
-  // intended vector immediately. setCustomWeights throws on an all-zero vector.
-  if (parsed.data.weights) {
-    try {
-      setCustomWeights(parsed.data.weights);
-    } catch (err: any) {
-      res.status(400).json({ error: { message: err?.message ?? 'Invalid custom weights' } });
-      return;
-    }
-  }
-  setRoutingStrategy(parsed.data.strategy as RoutingStrategy);
-  res.json({ strategy: getRoutingStrategy(), presets: BANDIT_PRESETS });
 });
 
 // Get fallback chain (with dynamic penalties)
@@ -115,12 +94,8 @@ fallbackRouter.get('/', (_req: Request, res: Response) => {
       rpdLimit: r.rpd_limit,
       tpmLimit: r.tpm_limit,
       tpdLimit: r.tpd_limit,
-      // Max context length (tokens), used by the dashboard catalog filter. Null
-      // for models whose context window the catalog doesn't record.
       contextWindow: r.context_window,
       monthlyTokenBudget: r.monthly_token_budget,
-      // Parsed once here (single source of truth) so the dashboard never re-implements
-      // budget-label parsing; 0 for rate-limited/placeholder labels. See lib/budget.ts.
       monthlyTokenBudgetTokens: parseBudget(r.monthly_token_budget),
       supportsVision: r.supports_vision === 1,
       supportsTools: r.supports_tools === 1,
@@ -129,13 +104,23 @@ fallbackRouter.get('/', (_req: Request, res: Response) => {
   }));
 });
 
-const updateSchema = z.array(z.object({
-  modelDbId: z.number(),
-  priority: z.number(),
-  enabled: z.boolean(),
-}));
+const updateSchema = z.union([
+  z.array(z.object({
+    modelDbId: z.number(),
+    priority: z.number(),
+    enabled: z.boolean(),
+  })),
+  z.object({
+    defaultModel: z.string().optional(),
+    models: z.array(z.object({
+      modelDbId: z.number(),
+      priority: z.number(),
+      enabled: z.boolean(),
+    })).optional(),
+  })
+]);
 
-// Update fallback chain (full replace)
+// Update fallback chain & default model
 fallbackRouter.put('/', (req: Request, res: Response) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -148,12 +133,27 @@ fallbackRouter.put('/', (req: Request, res: Response) => {
     UPDATE fallback_config SET priority = ?, enabled = ? WHERE model_db_id = ?
   `);
 
-  const updateAll = db.transaction(() => {
-    for (const entry of parsed.data) {
-      update.run(entry.priority, entry.enabled ? 1 : 0, entry.modelDbId);
+  if (Array.isArray(parsed.data)) {
+    const updateAll = db.transaction(() => {
+      for (const entry of parsed.data) {
+        update.run(entry.priority, entry.enabled ? 1 : 0, entry.modelDbId);
+      }
+    });
+    updateAll();
+  } else {
+    if (parsed.data.defaultModel) {
+      setDefaultChatModel(parsed.data.defaultModel);
     }
-  });
-  updateAll();
+    if (parsed.data.models) {
+      const modelsList = parsed.data.models;
+      const updateAll = db.transaction(() => {
+        for (const entry of modelsList) {
+          update.run(entry.priority, entry.enabled ? 1 : 0, entry.modelDbId);
+        }
+      });
+      updateAll();
+    }
+  }
 
   res.json({ success: true });
 });

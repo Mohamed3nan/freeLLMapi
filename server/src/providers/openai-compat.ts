@@ -21,8 +21,7 @@ export class OpenAICompatProvider extends BaseProvider {
   private readonly baseUrl: string;
   private readonly extraHeaders: Record<string, string>;
   private readonly validateUrl?: string;
-  /** Per-provider HTTP timeout override. Cloud APIs finish in ~15s; locally-hosted
-   * inference (llama.cpp / vLLM on CPU) can take 30-120s for long prompts. Default 15000. */
+  /** Per-provider HTTP timeout override. Default 10000. */
   private readonly timeoutMs: number;
   /** NVIDIA NIM models reject any request that permits parallel tool calls with
    * `400 This model only supports single tool-calls at once!`. When set, pin
@@ -45,7 +44,7 @@ export class OpenAICompatProvider extends BaseProvider {
     this.baseUrl = opts.baseUrl;
     this.extraHeaders = opts.extraHeaders ?? {};
     this.validateUrl = opts.validateUrl;
-    this.timeoutMs = opts.timeoutMs ?? 15000;
+    this.timeoutMs = opts.timeoutMs ?? 10000;
     this.keyless = opts.keyless ?? false;
     this.forceSingleToolCall = opts.forceSingleToolCall ?? false;
   }

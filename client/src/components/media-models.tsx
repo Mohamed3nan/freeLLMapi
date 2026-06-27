@@ -88,7 +88,6 @@ export function MediaModelsView({ modality }: { modality: 'image' | 'audio' }) {
         ) : (
           groups.map(g => {
             const anyEnabled = g.members.some(m => m.enabled)
-            const quota = g.members.map(m => m.quotaLabel).find(Boolean)
             return (
               <section key={g.slug} className={`rounded-3xl border bg-card p-5 ${anyEnabled ? '' : 'opacity-60'}`}>
                 <div className="mb-3 flex items-center gap-2 flex-wrap">
@@ -99,9 +98,6 @@ export function MediaModelsView({ modality }: { modality: 'image' | 'audio' }) {
                     </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">{g.members[0].platform}</span>
-                  )}
-                  {quota && (
-                    <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-muted text-muted-foreground tabular-nums">{quota}</span>
                   )}
                 </div>
 

@@ -110,32 +110,25 @@ describe('Routing Key Exhaustion', () => {
     expect(() => routeRequest(100)).toThrow(/All models exhausted/);
   });
 
-  it('should fall back to Flash when Pro is exhausted but Flash has quota', () => {
+  it('throws when model is exhausted (no cross-model fallback)', () => {
     (ratelimit.canMakeRequest as any).mockImplementation((_platform: string, modelId: string) => {
       if (modelId === 'gemini-1.5-pro') return false;
-      if (modelId === 'gemini-1.5-flash') return true;
       return true;
     });
     (ratelimit.canUseTokens as any).mockReturnValue(true);
 
-    const result = routeRequest(100);
-    expect(result.modelId).toBe('gemini-1.5-flash');
+    expect(() => routeRequest(100)).toThrow(/exhausted/i);
   });
 
-  // 404 model-removed handling: a dead model is skipped ENTIRELY for the rest
-  // of the request instead of burning one fallback attempt per key on the same
-  // dead route. (PR #111, credits @barbotkonv.)
   describe('skipModels (model-level 404 skip)', () => {
-    it('skips every key of a skipped model and routes to the next model', () => {
+    it('skips every key of a skipped model and throws if no keys left', () => {
       const db = getDb();
       const proId = db.prepare("SELECT id FROM models WHERE model_id = 'gemini-1.5-pro'").get().id;
 
-      // Both keys have quota — without skipModels, Pro would be chosen.
       (ratelimit.canMakeRequest as any).mockReturnValue(true);
       (ratelimit.canUseTokens as any).mockReturnValue(true);
 
-      const result = routeRequest(100, undefined, undefined, false, false, new Set([proId]));
-      expect(result.modelId).toBe('gemini-1.5-flash');
+      expect(() => routeRequest(100, undefined, undefined, false, false, new Set([proId]))).toThrow(/exhausted/i);
     });
 
     it('throws when every model is in skipModels', () => {
@@ -148,16 +141,14 @@ describe('Routing Key Exhaustion', () => {
       expect(() => routeRequest(100, undefined, undefined, false, false, new Set(ids))).toThrow();
     });
 
-    it('overrides a sticky/preferred model that has been skipped', () => {
+    it('throws when preferred model has been skipped', () => {
       const db = getDb();
       const proId = db.prepare("SELECT id FROM models WHERE model_id = 'gemini-1.5-pro'").get().id;
 
       (ratelimit.canMakeRequest as any).mockReturnValue(true);
       (ratelimit.canUseTokens as any).mockReturnValue(true);
 
-      // Sticky session prefers Pro, but Pro 404ed earlier in this request.
-      const result = routeRequest(100, undefined, proId, false, false, new Set([proId]));
-      expect(result.modelId).toBe('gemini-1.5-flash');
+      expect(() => routeRequest(100, undefined, proId, false, false, new Set([proId]))).toThrow(/exhausted/i);
     });
   });
 });

@@ -10,15 +10,10 @@ import { ModelsTabs } from '@/components/models-tabs'
 import {
   ModelTableHead,
   RowContent,
-  groupQuotaBadge,
   type FallbackEntry,
-  type RoutingData,
   type Row,
 } from './FallbackPage'
 
-// One model's own page: lists every provider that serves it (this model now
-// fails over across these providers). Reached from the Models list; replaces the
-// old inline group expansion.
 export default function ModelDetailPage() {
   const { t } = useI18n()
   const { id } = useParams<{ id: string }>()
@@ -29,32 +24,20 @@ export default function ModelDetailPage() {
     queryKey: ['fallback'],
     queryFn: () => apiFetch('/api/fallback'),
   })
-  const { data: routing } = useQuery<RoutingData>({
-    queryKey: ['fallback', 'routing'],
-    queryFn: () => apiFetch('/api/fallback/routing'),
-  })
   const { data: keyData } = useQuery<{ apiKey: string }>({
     queryKey: ['unified-key'],
     queryFn: () => apiFetch('/api/settings/api-key'),
   })
 
-  // Toggling a provider persists immediately (no save bar on this page): send the
-  // full entries list with this one flipped, then refresh.
   const saveMutation = useMutation({
     mutationFn: (data: { modelDbId: number; priority: number; enabled: boolean }[]) =>
       apiFetch('/api/fallback', { method: 'PUT', body: JSON.stringify(data) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['fallback'] }),
   })
 
-  const isManual = (routing?.strategy ?? 'balanced') === 'priority'
-  const scoreById = new Map((routing?.scores ?? []).map(s => [s.modelDbId, s]))
-
-  // Providers serving this model: configured rows whose group matches the id
-  // (canonicalId, or the bare model id for an ungrouped model).
   const members: Row[] = entries
     .filter(e => e.keyCount > 0 && (e.canonicalId ?? e.modelId) === canonicalId)
-    .map(e => ({ ...(scoreById.get(e.modelDbId) ?? {}), ...e }))
-    .sort((a, b) => (isManual ? a.priority - b.priority : (b.score ?? 0) - (a.score ?? 0)))
+    .sort((a, b) => a.priority - b.priority)
 
   function handleToggle(modelDbId: number, enabled: boolean) {
     saveMutation.mutate(entries.map(e => ({
@@ -65,7 +48,6 @@ export default function ModelDetailPage() {
   }
 
   const label = members[0]?.groupLabel ?? members[0]?.displayName ?? canonicalId
-  const quota = members.length ? groupQuotaBadge(members, t) : null
   const vision = members.some(m => m.supportsVision)
   const tools = members.some(m => m.supportsTools)
 
@@ -104,7 +86,6 @@ export default function ModelDetailPage() {
             {/* Summary badges */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] rounded-full px-2 py-0.5 bg-muted text-muted-foreground">{t('models.providerCount', { count: members.length })}</span>
-              {quota && <span title={quota.title} className="text-[11px] rounded-full px-2 py-0.5 bg-muted text-muted-foreground tabular-nums">{quota.text}</span>}
               {vision && <span title={t('models.visionTitle')} className="text-[11px] rounded-full px-2 py-0.5 bg-cyan-600/15 text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-400">{t('models.vision')}</span>}
               {tools && <span title={t('models.toolsTitle')} className="text-[11px] rounded-full px-2 py-0.5 bg-violet-600/15 text-violet-700 dark:bg-violet-400/15 dark:text-violet-400">{t('models.tools')}</span>}
             </div>

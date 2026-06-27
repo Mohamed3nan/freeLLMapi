@@ -390,29 +390,11 @@ describe('fusion route (/v1/chat/completions, model: "fusion")', () => {
     expect(body.x_fusion.panel_requested).toEqual([groqModel]);
   });
 
-  it('auto-panel ordering follows the picked routing strategy, deterministically', () => {
-    const original = getRoutingStrategy();
-    try {
-      // Priority mode: ordering is the manual chain order, and stable.
-      setRoutingStrategy('priority');
-      const p1 = getOrderedFusionChain().map(c => c.modelId);
-      const p2 = getOrderedFusionChain().map(c => c.modelId);
-      expect(p1.length).toBeGreaterThan(0);
-      expect(p2).toEqual(p1);
-
-      // Bandit mode: previously Thompson-sampled (random per call); now the
-      // deterministic expected-score ranking, so two calls must be identical.
-      setRoutingStrategy('smartest');
-      const s1 = getOrderedFusionChain().map(c => c.modelId);
-      const s2 = getOrderedFusionChain().map(c => c.modelId);
-      expect(s2).toEqual(s1);
-
-      // The strategy actually drives the ordering: 'smartest' (intelligence)
-      // and 'priority' (manual chain order) rank the seeded catalog differently.
-      expect(s1).not.toEqual(p1);
-    } finally {
-      setRoutingStrategy(original);
-    }
+  it('auto-panel ordering is deterministic', () => {
+    const p1 = getOrderedFusionChain().map(c => c.modelId);
+    const p2 = getOrderedFusionChain().map(c => c.modelId);
+    expect(p1.length).toBeGreaterThan(0);
+    expect(p2).toEqual(p1);
   });
 
   it('auto-panel excludes models whose platform has no usable key', async () => {

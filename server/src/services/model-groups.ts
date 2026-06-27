@@ -88,8 +88,10 @@ export function setUnifyOverrides(input: unknown): UnifyOverrides {
 // name that only merges into "Llama 3.3 70B" via an override (by design).
 export function stripProviderSuffix(displayName: string): string {
   let s = (displayName ?? '').trim();
-  // Strip leading publisher prefix (e.g. "Google: Gemini..." -> "Gemini...")
-  s = s.replace(/^[^:]+:\s*/, '').trim();
+  // Strip leading publisher prefix (e.g. "Google: Gemini..." -> "Gemini..."), but require a space after colon so model tags like "gemma3:12b" are preserved.
+  s = s.replace(/^[A-Za-z0-9\s-]+:\s+/, '').trim();
+  // Strip leading org/proxy prefix before a slash (e.g. "stealth/claude-opus-4.6" -> "claude-opus-4.6")
+  s = s.replace(/^[a-z0-9_-]+\//i, '').trim();
 
   // Iteratively drop trailing markers: a "(...)" provider/variant parenthetical,
   // or a standalone "free" word. "Free" is a pricing tier, not a different model
@@ -102,6 +104,10 @@ export function stripProviderSuffix(displayName: string): string {
     s = s.replace(/\s*\([^()]*\)\s*$/, '').trim();
     s = s.replace(/\s+free$/i, '').trim();
   } while (s !== prev);
+
+  // Normalize version hyphens to dots when between numbers (e.g. "claude-opus-4-6" -> "claude-opus-4.6")
+  s = s.replace(/\b(\d+)-(\d+)\b/g, '$1.$2');
+
   return s;
 }
 
@@ -114,13 +120,14 @@ export function normalizeGroupKey(displayName: string): string {
   // Treat spaces, hyphens, underscores, slashes, and colons as separators
   s = s.replace(/[\s\-_/:]+/g, ' ').trim();
   // Strip publisher prefixes from the start of the normalized string
-  s = s.replace(/^(google|meta llama|z ai|zai org|openai|cohere|mistral|anthropic|nvidia|cerebras|cloudflare|huggingface|openrouter|mistralai)\s+/i, '').trim();
+  s = s.replace(/^(google|meta llama|z ai|zai org|openai|cohere|mistral|anthropic|nvidia|cerebras|cloudflare|huggingface|openrouter|mistralai|stealth)\s+/i, '').trim();
   return s;
 }
 
 // A stable, human-friendly slug for the API. Keeps digits and dots ("3.3").
 export function slugifyGroupLabel(label: string): string {
-  const slug = (label ?? '').toLowerCase()
+  const normalized = stripProviderSuffix(label);
+  const slug = (normalized ?? '').toLowerCase()
     .replace(/\+/g, '-plus')
     .replace(/[^a-z0-9.\s-]/g, '')
     .trim()
@@ -156,10 +163,13 @@ function assignCanonicalIds(groups: ModelGroup[]): void {
 export function groupRows(rows: GroupableRow[], ov?: UnifyOverrides): ModelGroup[] {
   const map = new Map<string, ModelGroup>();
   for (const row of rows) {
-    const key = row.family || slugifyGroupLabel(stripProviderSuffix(row.display_name));
+    const nameToUse = row.display_name || row.model_id;
+    const isInvalidFamily = row.family && /^\d+b$/i.test(row.family);
+    const rawKey = (row.family && !isInvalidFamily) ? row.family : slugifyGroupLabel(stripProviderSuffix(nameToUse));
+    const key = rawKey.replace(/\b(\d+)-(\d+)\b/g, '$1.$2');
     let g = map.get(key);
     if (!g) {
-      g = { groupKey: key, canonicalId: '', groupLabel: stripProviderSuffix(row.display_name), members: [] };
+      g = { groupKey: key, canonicalId: '', groupLabel: stripProviderSuffix(nameToUse), members: [] };
       map.set(key, g);
     }
     g.members.push(row);
@@ -170,9 +180,9 @@ export function groupRows(rows: GroupableRow[], ov?: UnifyOverrides): ModelGroup
   for (const g of map.values()) {
     const rep = [...g.members].sort((a, b) =>
       (a.intelligence_rank ?? Number.MAX_SAFE_INTEGER) - (b.intelligence_rank ?? Number.MAX_SAFE_INTEGER)
-      || stripProviderSuffix(a.display_name).length - stripProviderSuffix(b.display_name).length
+      || stripProviderSuffix(a.display_name || a.model_id).length - stripProviderSuffix(b.display_name || b.model_id).length
       || a.model_db_id - b.model_db_id)[0];
-    g.groupLabel = stripProviderSuffix(rep.display_name);
+    g.groupLabel = stripProviderSuffix(rep.display_name || rep.model_id);
   }
 
   const groups = [...map.values()];
@@ -211,5 +221,17 @@ export function getModelGroups(): ModelGroup[] {
     SELECT m.id as model_db_id, m.platform, m.model_id, m.display_name, m.intelligence_rank, m.family
     FROM models m
   `).all() as GroupableRow[];
+
+  // Keep family column in SQLite in sync with dynamic grouping
+  const update = db.prepare('UPDATE models SET family = ? WHERE id = ?');
+  db.transaction(() => {
+    for (const r of rows) {
+      const fam = slugifyGroupLabel(stripProviderSuffix(r.display_name || r.model_id)).replace(/\b(\d+)-(\d+)\b/g, '$1.$2');
+      if (r.family !== fam) {
+        update.run(fam, r.model_db_id);
+      }
+    }
+  })();
+
   return groupRows(rows, getUnifyOverrides());
 }

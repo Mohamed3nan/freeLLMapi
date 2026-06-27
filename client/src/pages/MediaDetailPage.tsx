@@ -35,7 +35,6 @@ export default function MediaDetailPage({ modality }: { modality: 'image' | 'aud
   })
 
   const members = (data?.models ?? []).filter(m => m.modality === modality && m.displayName === label)
-  const quota = members.map(m => m.quotaLabel).find(Boolean)
 
   // A ready-to-run request. `model: "auto"` also works (tries every provider);
   // here we pin the first provider's id as a concrete example.
@@ -77,7 +76,6 @@ export default function MediaDetailPage({ modality }: { modality: 'image' | 'aud
           <>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] rounded-full px-2 py-0.5 bg-muted text-muted-foreground">{t('models.providerCount', { count: members.length })}</span>
-              {quota && <span className="text-[11px] rounded-full px-2 py-0.5 bg-muted text-muted-foreground tabular-nums">{quota}</span>}
             </div>
 
             {/* Providers serving this model — pin one with its id, or toggle it. */}

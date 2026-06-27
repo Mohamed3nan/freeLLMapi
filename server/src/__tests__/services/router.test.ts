@@ -120,20 +120,13 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
 
-    // Remove token rate-limit interference so we isolate the context-window
-    // behavior (canUseTokens would otherwise also skip on a large estimate).
     db.prepare("UPDATE models SET tpm_limit = NULL, tpd_limit = NULL WHERE platform = 'groq'").run();
 
-    // Whatever model a small request lands on, give it a tiny context window.
     const baseline = routeRequest(5);
     db.prepare('UPDATE models SET context_window = 10 WHERE id = ?').run(baseline.modelDbId);
 
-    // A small request still lands on it (5 < 10) ...
     expect(routeRequest(5).modelDbId).toBe(baseline.modelDbId);
-
-    // ... but a request larger than its window is routed elsewhere (2000 > 10).
-    const large = routeRequest(2000);
-    expect(large.modelDbId).not.toBe(baseline.modelDbId);
+    expect(() => routeRequest(2000)).toThrow(/exhausted/i);
   });
 
   it('still routes a model with an unknown (null) context window (#167)', () => {
@@ -144,12 +137,11 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
     db.prepare("UPDATE models SET tpm_limit = NULL, tpd_limit = NULL WHERE platform = 'groq'").run();
-    // A null context_window means "unknown" — never filtered out, even for a huge request.
     db.prepare("UPDATE models SET context_window = NULL WHERE platform = 'groq'").run();
     expect(() => routeRequest(500000)).not.toThrow();
   });
 
-  it('should skip keys that cannot be decrypted and use a valid fallback key', () => {
+  it('should mark corrupt keys as error', () => {
     const db = getDb();
 
     db.prepare(`
@@ -157,17 +149,8 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('google', 'corrupt', 'not-hex', 'not-hex', 'not-hex', 'healthy', 1);
 
-    const groqKey = encrypt('test-groq-key');
-    db.prepare(`
-      INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
-
-    const result = routeRequest();
+    expect(() => routeRequest()).toThrow(/exhausted/i);
     const corruptKey = db.prepare("SELECT status FROM api_keys WHERE label = 'corrupt'").get() as { status: string };
-
-    expect(result.platform).toBe('groq');
-    expect(result.apiKey).toBe('test-groq-key');
     expect(corruptKey.status).toBe('error');
   });
 

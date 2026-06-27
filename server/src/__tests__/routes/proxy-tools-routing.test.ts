@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
-import { routeRequest, setRoutingStrategy } from '../../services/router.js';
+import { routeRequest, setRoutingStrategy, setDefaultChatModel } from '../../services/router.js';
 import { encrypt } from '../../lib/crypto.js';
 
 async function post(app: Express, path: string, body: any, key: string) {
@@ -97,14 +97,21 @@ describe('Tools-aware routing', () => {
 
     // One key for google, whose catalog holds both a non-tool model (gemma)
     // and tool-capable ones (gemini). Put gemma at the top of the chain.
-    const { encrypted, iv, authTag } = encrypt('test-google-key');
+    const gemma = db.prepare("SELECT id, model_id, platform FROM models WHERE LOWER(model_id) LIKE '%gemma%' AND enabled = 1").get() as { id: number; model_id: string; platform: string } | undefined;
+    expect(gemma).toBeDefined();
+    setDefaultChatModel(gemma!.model_id);
+
+    const { encrypted, iv, authTag } = encrypt('test-key');
     db.prepare(`
       INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
       VALUES ('google', 'test', ?, ?, ?, 'healthy', 1)
     `).run(encrypted, iv, authTag);
-
-    const gemma = db.prepare("SELECT id FROM models WHERE platform = 'google' AND LOWER(model_id) LIKE '%gemma%' AND enabled = 1").get() as { id: number } | undefined;
-    expect(gemma).toBeDefined();
+    if (gemma!.platform !== 'google') {
+      db.prepare(`
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+        VALUES (?, 'test', ?, ?, ?, 'healthy', 1)
+      `).run(gemma!.platform, encrypted, iv, authTag);
+    }
     db.prepare('UPDATE fallback_config SET priority = 0, enabled = 1 WHERE model_db_id = ?').run(gemma!.id);
 
     // Plain request takes the chain head: gemma.

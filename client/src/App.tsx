@@ -1,23 +1,18 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Languages, Menu, MoreHorizontal, Moon, Sun } from 'lucide-react'
+import { Menu, MoreHorizontal, Moon, Sun } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { AuthGate } from '@/components/auth-gate'
-import { I18nProvider, useI18n, SUPPORTED_LOCALES, type Locale } from '@/i18n'
+import { I18nProvider, useI18n } from '@/i18n'
 import { logout } from '@/lib/api'
 import KeysPage from '@/pages/KeysPage'
 import PlaygroundPage from '@/pages/PlaygroundPage'
@@ -106,30 +101,6 @@ if (isDesktopApp) {
   document.documentElement.classList.add('desktop')
 }
 
-// Language picker as a dropdown submenu, shared by the desktop (⋯) and mobile
-// (☰) menus. Radio items show a check on the active locale; selecting one calls
-// setLocale, which persists and re-renders every t() synchronously.
-function LanguageSubMenu() {
-  const { locale, setLocale, t } = useI18n()
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger className="gap-2">
-        <Languages className="size-4" />
-        <span>{t('nav.language')}</span>
-      </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent>
-        <DropdownMenuRadioGroup value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-          {SUPPORTED_LOCALES.map((code) => (
-            <DropdownMenuRadioItem key={code} value={code}>
-              {t(`languages.${code}`)}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
-  )
-}
-
 function Navbar() {
   const { dark, toggle } = useDarkMode()
   const { t } = useI18n()
@@ -178,7 +149,6 @@ function Navbar() {
                 <span>{t('nav.theme')}</span>
                 {dark ? <Sun /> : <Moon />}
               </DropdownMenuItem>
-              <LanguageSubMenu />
               {!isDesktopApp && (
                 <>
                   <DropdownMenuSeparator />
@@ -214,7 +184,6 @@ function Navbar() {
                   <span>{t('nav.theme')}</span>
                   {dark ? <Sun /> : <Moon />}
                 </DropdownMenuItem>
-                <LanguageSubMenu />
                 {!isDesktopApp && (
                   <DropdownMenuItem onClick={() => logout()}>{t('nav.signOut')}</DropdownMenuItem>
                 )}

@@ -185,7 +185,6 @@ export default function EmbeddingsPage() {
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-muted-foreground/70">{p.quotaLabel}</div>
                       </div>
                       {f.providers.length > 1 && (
                         <div className="flex gap-0.5">

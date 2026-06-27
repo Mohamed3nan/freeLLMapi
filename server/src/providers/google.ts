@@ -688,7 +688,7 @@ export class GoogleProvider extends BaseProvider {
       const res = await this.fetchWithTimeout(
         `${API_BASE}/models?key=${apiKey}`,
         { method: 'GET' },
-        15000,
+        10000,
       );
       if (!res.ok) return [];
       const body = await res.json().catch(() => null) as { models?: unknown[] } | null;
