@@ -134,8 +134,9 @@ fallbackRouter.put('/', (req: Request, res: Response) => {
   `);
 
   if (Array.isArray(parsed.data)) {
+    const entries = parsed.data;
     const updateAll = db.transaction(() => {
-      for (const entry of parsed.data) {
+      for (const entry of entries) {
         update.run(entry.priority, entry.enabled ? 1 : 0, entry.modelDbId);
       }
     });

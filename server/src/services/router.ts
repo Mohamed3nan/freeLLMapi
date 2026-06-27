@@ -96,6 +96,11 @@ export interface RouteResult {
   tpdLimit: number | null;
 }
 
+export interface ResolvedChain {
+  chain: ChainRow[];
+  strategyKey: string;
+}
+
 // Round-robin index per platform
 const roundRobinIndex = new Map<string, number>();
 
